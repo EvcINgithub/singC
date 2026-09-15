@@ -39,6 +39,24 @@ New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 $asset = Join-Path $releaseDir "singC-$Version-win-x64.zip"
 if (Test-Path -LiteralPath $asset) { throw 'Release asset already exists; do not overwrite a published version' }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory($publish, $asset)
+Add-Type -AssemblyName System.IO.Compression
+$zipStream = [System.IO.File]::Open($asset, [System.IO.FileMode]::CreateNew)
+try {
+    $archive = [System.IO.Compression.ZipArchive]::new($zipStream, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in Get-ChildItem -LiteralPath $publish -Recurse -File) {
+            $entryName = $file.FullName.Substring($publish.Length + 1).Replace('\', '/')
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $entryName, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    } finally { $archive.Dispose() }
+} finally { $zipStream.Dispose() }
 ((Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + (Split-Path $asset -Leaf)) | Set-Content -LiteralPath ($asset + '.sha256') -Encoding ascii
+$assetName = Split-Path $asset -Leaf
+$releaseAssets = @($assetName, ($assetName + '.sha256')) | ForEach-Object {
+    @{ name = $_; browser_download_url = "https://github.com/EvcINgithub/singC/releases/download/v$Version/$_" }
+}
+$notesPath = Join-Path $sourceRoot 'RELEASE_NOTES.md'
+$notes = if (Test-Path -LiteralPath $notesPath) { [System.IO.File]::ReadAllText($notesPath) } else { "singC $Version" }
+@{ tag_name = "v$Version"; draft = $false; prerelease = $false; body = $notes; assets = @($releaseAssets) } |
+    ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $releaseDir 'update.json') -Encoding utf8
 Write-Output "Release package: $asset"

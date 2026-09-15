@@ -68,6 +68,21 @@ try
     int copies = 0;
     Reject(() => failure.Apply(stage, "1.0.2", _ => { if (++copies == 3) throw new IOException("simulated write failure"); }), "mid-install failure");
     Check(File.ReadAllText(Path.Combine(target, "singC.exe")).StartsWith("1.0.1"), "mid-install automatic rollback");
+    if (args.Length == 2)
+    {
+        var feed = ReleaseInfo.Parse(File.ReadAllText(args[1]).TrimStart('\uFEFF'), new Version(0, 0, 0))
+            ?? throw new Exception("Generated update feed did not describe a release");
+        Check(feed.PackageName == Path.GetFileName(args[0]), "generated release feed matches package");
+        var expectedHash = ReleaseInfo.ParseHash(File.ReadAllText(args[0] + ".sha256"), feed.PackageName);
+        using (var archive = ZipFile.OpenRead(args[0]))
+            foreach (var entry in archive.Entries)
+            {
+                try { UpdatePackage.SafePath(root, entry.FullName.TrimEnd('/')); }
+                catch (Exception ex) { throw new InvalidDataException("Unexpected archive path: " + JsonSerializer.Serialize(entry.FullName), ex); }
+            }
+        UpdatePackage.Extract(args[0], Dir("real-package"), expectedHash, feed.Version.ToString(3), default);
+        Check(true, "real release package passes client extraction and manifest validation");
+    }
     Console.WriteLine($"{passed} checks passed.");
     return 0;
 }

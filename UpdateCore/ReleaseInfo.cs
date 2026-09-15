@@ -9,7 +9,7 @@ namespace singC.Updates;
 public sealed record ReleaseInfo(string Tag, Version Version, string Notes, Uri PackageUrl, Uri HashUrl)
 {
     public const string Repository = "EvcINgithub/singC";
-    public const string LatestUrl = "https://api.github.com/repos/" + Repository + "/releases/latest";
+    public const string LatestUrl = "https://github.com/" + Repository + "/releases/latest/download/update.json";
     public string PackageName => $"singC-{Version.ToString(3)}-win-x64.zip";
 
     public static Version ParseVersion(string text)

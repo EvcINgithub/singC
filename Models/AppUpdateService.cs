@@ -90,7 +90,7 @@ public sealed class AppUpdateService
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
                 throw new HttpRequestException("GitHub 暂时限制请求，请稍后重试。");
             response.EnsureSuccessStatusCode();
-            _release = ReleaseInfo.Parse(await response.Content.ReadAsStringAsync(timeout.Token), CurrentVersion);
+            _release = ReleaseInfo.Parse((await response.Content.ReadAsStringAsync(timeout.Token)).TrimStart('\uFEFF'), CurrentVersion);
             SetStatus(_release == null ? "当前已是最新版本。" : $"发现新版本 {_release.Version.ToString(3)}");
             prompt = _release != null;
         }
