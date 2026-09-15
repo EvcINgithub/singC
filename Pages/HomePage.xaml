@@ -1,0 +1,53 @@
+﻿<!-- Pages/HomePage.xaml -->
+<Page
+    x:Class="singC.Pages.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:singC.Pages"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="TitleTextBlock"
+                   Text="Sing-Box 控制面板"
+                   Style="{StaticResource TitleTextBlockStyle}"
+                   Margin="24,16,24,0"/>
+
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16">
+            <TextBlock x:Name="BackgroundText"
+                       Text="当前背景"
+                       Style="{StaticResource SubtitleTextBlockStyle}"
+                       HorizontalAlignment="Center"/>
+
+            <TextBlock x:Name="NoBackgroundText"
+                       Text="涉密不上网，上网不涉密"
+                       HorizontalAlignment="Center"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Visibility="Visible"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" HorizontalAlignment="Center" Margin="24,0,24,32" Spacing="12" Width="360">
+            <ComboBox x:Name="ConfigComboBox"
+                      ItemsSource="{x:Bind ConfigPaths}"
+                      SelectionChanged="ConfigComboBox_SelectionChanged"
+                      PlaceholderText="选择启动配置"
+                      HorizontalAlignment="Stretch"/>
+
+            <Button x:Name="ToggleServiceButton"
+                    Click="ToggleServiceButton_Click"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Width="200" Height="48"
+                    HorizontalAlignment="Center"
+                    FontSize="16"/>
+
+            <TextBlock x:Name="StateTextBlock"
+                       HorizontalAlignment="Center"
+                       Style="{StaticResource CaptionTextBlockStyle}"/>
+        </StackPanel>
+    </Grid>
+</Page>

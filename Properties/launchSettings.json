@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "singC (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "singC (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

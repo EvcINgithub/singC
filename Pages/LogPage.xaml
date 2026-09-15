@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="singC.Pages.LogPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:singC.Pages"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid Padding="16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            Grid.Row="0"
+            Text="Sing-Box 日志"
+            Style="{StaticResource TitleTextBlockStyle}"/>
+
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="160"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBox
+                x:Name="FilterTextBox"
+                Grid.Column="0"
+                PlaceholderText="过滤日志内容"
+                TextChanged="FilterTextBox_TextChanged"/>
+
+            <ComboBox
+                x:Name="LevelFilterComboBox"
+                Grid.Column="1"
+                SelectedIndex="0"
+                SelectionChanged="LevelFilterComboBox_SelectionChanged">
+                <ComboBoxItem Content="全部" Tag="All"/>
+                <ComboBoxItem Content="错误" Tag="Error"/>
+                <ComboBoxItem Content="警告" Tag="Warning"/>
+                <ComboBoxItem Content="信息" Tag="Info"/>
+                <ComboBoxItem Content="调试" Tag="Debug"/>
+            </ComboBox>
+
+            <Button
+                Grid.Column="2"
+                x:Name="FollowButton"
+                Content="暂停跟随"
+                Click="FollowButton_Click"/>
+
+            <Button
+                Grid.Column="3"
+                Content="跳到最新"
+                Click="JumpToLatestButton_Click"/>
+
+            <Button
+                Grid.Column="4"
+                Content="复制选中"
+                Click="CopySelectedButton_Click"/>
+
+            <Button
+                Grid.Column="5"
+                Content="清空"
+                Click="ClearButton_Click"/>
+
+            <Button
+                Grid.Column="6"
+                Content="复制筛选"
+                Click="CopyFilteredButton_Click"/>
+
+            <Button
+                Grid.Column="7"
+                Content="导出"
+                Click="ExportFilteredButton_Click"/>
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="320"/>
+            </Grid.ColumnDefinitions>
+
+            <ListView
+                x:Name="LogListView"
+                Grid.Column="0"
+                ItemsSource="{x:Bind FilteredLogs, Mode=OneWay}"
+                SelectionMode="Single"
+                Loaded="LogListView_Loaded"
+                SelectionChanged="LogListView_SelectionChanged"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:LogEntry">
+                        <Border
+                            Padding="10,7"
+                            Background="{x:Bind Background}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="0,0,0,1">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="72"/>
+                                    <ColumnDefinition Width="72"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock
+                                    Text="{x:Bind TimeText}"
+                                    FontFamily="Consolas"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                <TextBlock
+                                    Grid.Column="1"
+                                    Text="{x:Bind Level}"
+                                    FontFamily="Consolas"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Foreground="{x:Bind Foreground}"/>
+
+                                <TextBlock
+                                    Grid.Column="2"
+                                    Text="{x:Bind Message}"
+                                    FontFamily="Consolas"
+                                    FontSize="13"
+                                    Foreground="{x:Bind Foreground}"
+                                    IsTextSelectionEnabled="True"
+                                    TextWrapping="WrapWholeWords"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <Border
+                Grid.Column="1"
+                Padding="14"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="日志分析" Style="{StaticResource SubtitleTextBlockStyle}"/>
+
+                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+                        <TextBlock Text="总数" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" x:Name="TotalCountTextBlock" FontWeight="SemiBold" IsTextSelectionEnabled="True"/>
+
+                        <TextBlock Grid.Row="1" Text="错误" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="ErrorCountTextBlock" Foreground="#C42B1C" FontWeight="SemiBold" IsTextSelectionEnabled="True"/>
+
+                        <TextBlock Grid.Row="2" Text="警告" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="WarningCountTextBlock" Foreground="#9D5D00" FontWeight="SemiBold" IsTextSelectionEnabled="True"/>
+
+                        <TextBlock Grid.Row="3" Text="信息/调试" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="InfoCountTextBlock" FontWeight="SemiBold" IsTextSelectionEnabled="True"/>
+                    </Grid>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="最近问题" FontWeight="SemiBold"/>
+                        <TextBlock
+                            x:Name="LatestIssueTextBlock"
+                            TextWrapping="WrapWholeWords"
+                            FontFamily="Consolas"
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            IsTextSelectionEnabled="True"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="关键词" FontWeight="SemiBold"/>
+                        <ItemsControl ItemsSource="{x:Bind AnalyzerKeywords, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock
+                                        Text="{Binding}"
+                                        FontFamily="Consolas"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        IsTextSelectionEnabled="True"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

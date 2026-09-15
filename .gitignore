@@ -1,0 +1,23 @@
+# .NET build output
+bin/
+obj/
+
+# Windows packaging output is intentionally not part of the release workflow.
+AppPackages/
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.appxsym
+
+# Runtime browser data created beside the desktop executable.
+*.exe.WebView2/
+*.csproj.user
+.vs/
+public-source/
+artifacts/
+.env
+.env.*
+*.pfx
+*.key
+*.pem

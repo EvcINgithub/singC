@@ -1,0 +1,256 @@
+<Page
+    x:Class="singC.Pages.ConnectionsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:singC.Models"
+    xmlns:converters="using:singC.Converters"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.Resources>
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+    </Page.Resources>
+
+    <Grid Padding="16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Spacing="2">
+                <TextBlock Text="连接" Style="{StaticResource TitleTextBlockStyle}"/>
+                <TextBlock Text="实时查看 sing-box 当前连接、规则命中和上下行流量"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    x:Name="CopyConnectionButton"
+                    Click="CopyConnectionButton_Click"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="复制选中连接">
+                <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
+            </Button>
+
+            <Button Grid.Column="2"
+                    x:Name="ConnectionDetailsButton"
+                    Click="ConnectionDetailsButton_Click"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="查看连接详情">
+                <FontIcon Glyph="&#xE946;" FontSize="14"/>
+            </Button>
+
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <AutoSuggestBox
+                x:Name="SearchBox"
+                Grid.Column="0"
+                PlaceholderText="搜索连接：主机、网络、规则、源地址、目标地址"
+                Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                QueryIcon="Find"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Center"/>
+
+            <Button Grid.Column="1"
+                    Click="ClearSearchButton_Click"
+                    ToolTipService.ToolTip="清空检索">
+                <FontIcon Glyph="&#xE894;" FontSize="14"/>
+            </Button>
+
+            <Button Grid.Column="2"
+                    Click="RefreshButton_Click"
+                    ToolTipService.ToolTip="立即刷新连接">
+                <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+            </Button>
+
+            <Border Grid.Column="3"
+                    Padding="12,8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                <StackPanel Spacing="2" MinWidth="96">
+                    <TextBlock Text="当前连接" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.FilteredConnections.Count, Mode=OneWay}"
+                               FontSize="22"
+                               FontWeight="SemiBold"/>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="4"
+                    Padding="12,8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                <StackPanel Spacing="2" MinWidth="96">
+                    <TextBlock Text="全部连接" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.Connections.Count, Mode=OneWay}"
+                               FontSize="22"
+                               FontWeight="SemiBold"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{x:Bind ViewModel.ConnectionStatus, Mode=OneWay}"
+                       VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       IsTextSelectionEnabled="True"/>
+            <TextBlock Grid.Column="1" Text="排序" VerticalAlignment="Center"/>
+            <ComboBox Grid.Column="2"
+                      Width="130"
+                      SelectedValuePath="Tag"
+                      SelectedValue="{x:Bind ViewModel.SortMode, Mode=TwoWay}">
+                <ComboBoxItem Content="最新连接" Tag="time"/>
+                <ComboBoxItem Content="主机名称" Tag="host"/>
+                <ComboBoxItem Content="上传流量" Tag="upload"/>
+                <ComboBoxItem Content="下载流量" Tag="download"/>
+            </ComboBox>
+            <ToggleSwitch Grid.Column="3"
+                          IsOn="{x:Bind ViewModel.AutoReconnect, Mode=TwoWay}"
+                          OnContent="自动重连"
+                          OffContent="不自动重连"
+                          VerticalAlignment="Center"/>
+            <ComboBox Grid.Column="4"
+                      Width="96"
+                      SelectedIndex="{x:Bind ViewModel.RefreshIntervalIndex, Mode=TwoWay}">
+                <ComboBoxItem Content="1 秒"/>
+                <ComboBoxItem Content="2 秒"/>
+                <ComboBoxItem Content="5 秒"/>
+                <ComboBoxItem Content="10 秒"/>
+            </ComboBox>
+        </Grid>
+
+            <ListView Grid.Row="3"
+                  x:Name="ConnectionListView"
+                  ItemsSource="{x:Bind ViewModel.FilteredConnections}"
+                  SelectionMode="Single"
+                  IsItemClickEnabled="True"
+                  ItemClick="ConnectionListView_ItemClick"
+                  SelectionChanged="ConnectionListView_SelectionChanged"
+                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                  BorderThickness="1">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="Margin" Value="0"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:ConnectionInfo">
+                    <Border Padding="14,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="0,0,0,1">
+                        <Grid ColumnSpacing="12" RowSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.RowSpan="2"
+                                    Width="38"
+                                    Height="38"
+                                    CornerRadius="8"
+                                    Background="{ThemeResource AccentFillColorDefaultBrush}">
+                                <FontIcon Glyph="&#xE8F1;"
+                                          FontSize="17"
+                                          Foreground="White"/>
+                            </Border>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{x:Bind PrimaryDisplay}"
+                                           FontWeight="SemiBold"
+                                           FontSize="15"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxWidth="420"/>
+                                <Border Padding="6,2"
+                                        CornerRadius="4"
+                                        Background="#143B82F6"
+                                        Visibility="{x:Bind Network, Converter={StaticResource StringToVisibilityConverter}, FallbackValue=Collapsed}">
+                                    <TextBlock Text="{x:Bind Network}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"
+                                               Foreground="#1D4ED8"/>
+                                </Border>
+                                <Border Padding="6,2"
+                                        CornerRadius="4"
+                                        Background="#1422C55E"
+                                        Visibility="{x:Bind Rule, Converter={StaticResource StringToVisibilityConverter}, FallbackValue=Collapsed}">
+                                    <TextBlock Text="{x:Bind Rule}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"
+                                               Foreground="#15803D"/>
+                                </Border>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE898;" FontSize="12" Foreground="#C2410C"/>
+                                    <TextBlock Text="{x:Bind UploadDisplay}" FontSize="12" Foreground="#C2410C"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE896;" FontSize="12" Foreground="#047857"/>
+                                    <TextBlock Text="{x:Bind DownloadDisplay}" FontSize="12" Foreground="#047857"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" ColumnSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE8B5;" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <TextBlock Text="{x:Bind SecondaryDisplay}"
+                                               FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE121;" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <TextBlock Text="{x:Bind StartTimeDisplay}"
+                                               FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</Page>

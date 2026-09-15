@@ -1,0 +1,193 @@
+<Page
+    x:Class="singC.Pages.NetworkTestPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:singC.Models"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid Padding="24" RowSpacing="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="160"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="2">
+                <TextBlock Text="网络测试" Style="{StaticResource TitleTextBlockStyle}"/>
+                <TextBlock Text="检查本机网络、Clash API 和当前 sing-box TUN 链路"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    x:Name="CopyReportButton"
+                    Click="CopyReportButton_Click"
+                    ToolTipService.ToolTip="复制测试报告">
+                <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
+            </Button>
+            <Button Grid.Column="2"
+                    Click="ClearResultsButton_Click"
+                    ToolTipService.ToolTip="清空测试结果">
+                <FontIcon Glyph="&#xE894;" FontSize="14"/>
+            </Button>
+        </Grid>
+
+        <Border Grid.Row="1"
+                Padding="14"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+            <StackPanel Spacing="12">
+                <TextBlock Text="测试目标" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="1.2*"/>
+                        <ColumnDefinition Width="110"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="TestUrlBox"
+                             Header="HTTP/HTTPS 地址"
+                             PlaceholderText="https://www.baidu.com/"/>
+                    <TextBox Grid.Column="1"
+                             x:Name="HostBox"
+                             Header="DNS/TCP 主机"
+                             PlaceholderText="www.baidu.com"/>
+                    <NumberBox Grid.Column="2"
+                               x:Name="PortBox"
+                               Header="端口"
+                               Minimum="1"
+                               Maximum="65535"
+                               SmallChange="1"
+                               />
+                </Grid>
+
+                <TextBox x:Name="ExitIpBox"
+                         Header="出口 IP 服务地址"
+                         PlaceholderText="https://api.ipify.org?format=json"/>
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="RunBasicButton"
+                            Click="RunBasicButton_Click"
+                            Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE9D9;" FontSize="14"/>
+                            <TextBlock Text="基础诊断"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="RunProxyButton"
+                            Click="RunProxyButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE774;" FontSize="14"/>
+                            <TextBlock Text="代理链路测试"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="CancelButton"
+                            Click="CancelButton_Click"
+                            IsEnabled="False">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE711;" FontSize="14"/>
+                            <TextBlock Text="取消"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="SummaryTextBlock"
+                       Text="等待测试"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       IsTextSelectionEnabled="True"/>
+            <TextBlock Grid.Column="1"
+                       x:Name="LastRunTextBlock"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                       IsTextSelectionEnabled="True"/>
+        </Grid>
+
+        <ListView Grid.Row="3"
+                  x:Name="ResultListView"
+                  ItemsSource="{x:Bind Results, Mode=OneWay}"
+                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                  BorderThickness="1">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:NetworkTestResult">
+                    <Border Padding="12"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="0,0,0,1">
+                        <Grid ColumnSpacing="10" RowSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <FontIcon Glyph="{x:Bind StatusGlyph}"
+                                      FontSize="16"
+                                      VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind Name}"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2"
+                                       Text="{x:Bind StatusText}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="3"
+                                        Orientation="Horizontal"
+                                        Spacing="10">
+                                <TextBlock Text="{x:Bind DurationText}"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind Detail}"
+                                           TextWrapping="WrapWholeWords"
+                                           IsTextSelectionEnabled="True"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <ListView Grid.Row="4"
+                  ItemsSource="{x:Bind History, Mode=OneWay}"
+                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                  BorderThickness="1"
+                  Header="最近 10 次测试">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:NetworkTestRunSummary">
+                    <Grid ColumnSpacing="12" Padding="10,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="360"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{x:Bind DisplayText}" IsTextSelectionEnabled="True"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{x:Bind FailureDisplayText}"
+                                   TextTrimming="CharacterEllipsis"
+                                   IsTextSelectionEnabled="True"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</Page>
