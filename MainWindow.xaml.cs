@@ -49,7 +49,6 @@ namespace singC
             new NavItem { Label = "日志", Icon = "\uE792", PageType = "Log" },
             new NavItem { Label = "连接", Icon = "\uE8F1", PageType = "Connections" },
             new NavItem { Label = "网络测试", Icon = "\uE774", PageType = "NetworkTest" },
-            new NavItem { Label = "文件", Icon = "\uE8B7", PageType = "FileBrowser" },
             new NavItem { Label = "设置", Icon = "\uE713", PageType = "Settings" }
         };
         public MainWindow()
@@ -153,14 +152,13 @@ namespace singC
                 case "Log": ContentFrame.Navigate(typeof(LogPage)); break;
                 case "Connections": ContentFrame.Navigate(typeof(ConnectionsPage)); break;
                 case "NetworkTest": ContentFrame.Navigate(typeof(NetworkTestPage)); break;
-                case "FileBrowser": ContentFrame.Navigate(typeof(FileBrowserPage)); break;
                 case "Settings": ContentFrame.Navigate(typeof(SettingsPage)); break;
             }
         }
 
         private void RootGrid_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
         {
-            if (e.Key >= Windows.System.VirtualKey.Number1 && e.Key <= Windows.System.VirtualKey.Number6
+            if (e.Key >= Windows.System.VirtualKey.Number1 && e.Key <= Windows.System.VirtualKey.Number5
                 && e.KeyStatus.IsMenuKeyDown == false)
             {
                 var modifiers = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);

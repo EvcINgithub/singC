@@ -23,8 +23,6 @@ namespace singC.Helpers
         public const string LastPageKey = "LastPage";
         public const string StartWithWindowsKey = "StartWithWindows";
         public const string TrafficServiceUrlKey = "TrafficServiceUrl";
-        public const string FileBrowserUrlKey = "FileBrowserUrl";
-        public const string ChatUrlKey = "ChatUrl";
 
         public static bool IsServiceUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)

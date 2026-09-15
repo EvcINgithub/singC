@@ -19,7 +19,6 @@
   </PropertyGroup>
   <ItemGroup>
     <None Remove="Pages\ConnectionsPage.xaml" />
-    <None Remove="Pages\FileBrowserPage.xaml" />
     <None Remove="Pages\LogPage.xaml" />
     <None Remove="Pages\SettingsPage.xaml" />
   </ItemGroup>
@@ -57,11 +56,6 @@
   </ItemGroup>
   <ItemGroup>
     <Page Update="Pages\ConnectionsPage.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-  </ItemGroup>
-  <ItemGroup>
-    <Page Update="Pages\FileBrowserPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>

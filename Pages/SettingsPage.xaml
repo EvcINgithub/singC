@@ -45,8 +45,6 @@
                         <TextBlock Text="个人服务" Style="{StaticResource SubtitleTextBlockStyle}"/>
                         <TextBlock Text="地址保存在本机，留空则不连接。请输入完整的 HTTP 或 HTTPS 地址。" TextWrapping="Wrap"/>
                         <TextBox x:Name="TrafficServiceUrlBox" Header="流量查询接口" PlaceholderText="https://example.com/traffic"/>
-                        <TextBox x:Name="FileServiceUrlBox" Header="文件服务网页" PlaceholderText="https://example.com/files"/>
-                        <TextBox x:Name="ChatServiceUrlBox" Header="聊天网页" PlaceholderText="https://example.com/chat"/>
                         <Button Content="保存服务地址" Click="SaveServiceUrls_Click"/>
                         <TextBlock x:Name="ServiceUrlStatus" TextWrapping="Wrap"/>
                     </StackPanel>
