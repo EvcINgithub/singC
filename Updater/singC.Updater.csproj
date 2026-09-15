@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>singC.Updater</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../UpdateCore/*.cs" Link="UpdateCore/%(Filename)%(Extension)"/>
+  </ItemGroup>
+</Project>

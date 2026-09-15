@@ -1,7 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <DefaultItemExcludes>$(DefaultItemExcludes);public-source/**;artifacts/**</DefaultItemExcludes>
+    <Version>1.0.1</Version>
+    <DefaultItemExcludes>$(DefaultItemExcludes);public-source/**;artifacts/**;Updater/**;Tests/**</DefaultItemExcludes>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
 	  <ApplicationIcon>Assets\singC.ico</ApplicationIcon>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>

@@ -12,6 +12,7 @@ using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
+using Path = System.IO.Path;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
@@ -53,6 +54,26 @@ namespace singC
             window.Closed += OnMainWindowClosed;
             window.Activate();
             window.DispatcherQueue.TryEnqueue(InitializeBackgroundOnUiThread);
+            AppUpdateService.Instance.Start(window.DispatcherQueue);
+            window.DispatcherQueue.TryEnqueue(CompleteUpdateStartup);
+        }
+
+        private static async void CompleteUpdateStartup()
+        {
+            var arguments = Environment.GetCommandLineArgs();
+            int markerIndex = Array.IndexOf(arguments, "--update-ready");
+            try
+            {
+                if (markerIndex >= 0 && markerIndex + 1 < arguments.Length)
+                {
+                    var marker = Path.GetFullPath(arguments[markerIndex + 1]);
+                    var updateRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "singC", "updates") + Path.DirectorySeparatorChar;
+                    if (marker.StartsWith(updateRoot, StringComparison.OrdinalIgnoreCase) && Path.GetFileName(marker) == "app-ready")
+                        File.WriteAllText(marker, "ready");
+                }
+                if (arguments.Contains("--resume-proxy")) await SingBoxService.Instance.StartAsync();
+            }
+            catch (Exception ex) { AppUpdateService.Instance.ReportStartupFailure(ex.Message); }
         }
 
         private static async void InitializeBackgroundOnUiThread()

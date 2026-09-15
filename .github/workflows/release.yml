@@ -1,0 +1,42 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Test updater
+        run: dotnet run --project Tests/UpdateTests.csproj -c Release
+      - name: Build clean release
+        shell: pwsh
+        run: ./Scripts/Build-Release.ps1 -Version $env:GITHUB_REF_NAME
+      - name: Test real updater handoff
+        shell: pwsh
+        run: |
+          dotnet publish Tests/FixtureApp/FixtureApp.csproj -c Release -o artifacts/update-fixture
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture build failed' }
+          $updater = Get-ChildItem 'artifacts/release-*/updater/singC.Updater.exe' | Select-Object -First 1
+          ./Tests/Invoke-UpdaterSmoke.ps1 -UpdaterPath $updater.FullName
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets = @(Get-ChildItem artifacts/releases -File | ForEach-Object FullName)
+          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --title "singC $env:GITHUB_REF_NAME" --generate-notes --draft
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+          gh release edit $env:GITHUB_REF_NAME --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

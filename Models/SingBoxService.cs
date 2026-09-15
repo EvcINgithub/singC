@@ -204,6 +204,25 @@ namespace singC.Models
             }
         }
 
+        public async Task StopForUpdateAsync()
+        {
+            Process? observed = null;
+            lock (_stateLock)
+            {
+                if (_process != null)
+                {
+                    try { observed = Process.GetProcessById(_process.Id); }
+                    catch (ArgumentException) { }
+                }
+            }
+            using (observed)
+            {
+                await StopAsync();
+                if (observed != null && !observed.HasExited)
+                    throw new IOException("sing-box 未能退出，已取消安装。");
+            }
+        }
+
         public void Stop()
         {
             StopAsync().GetAwaiter().GetResult();

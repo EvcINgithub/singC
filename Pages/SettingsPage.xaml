@@ -39,6 +39,20 @@
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel Spacing="14">
+                <Border Padding="14" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="应用更新" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        <TextBlock x:Name="AppVersionText"/>
+                        <ToggleSwitch x:Name="AutoUpdateToggle" Header="每 24 小时自动检查更新" Toggled="AutoUpdateToggle_Toggled"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="CheckUpdateButton" Content="检查更新" Click="CheckUpdate_Click"/>
+                            <Button x:Name="InstallUpdateButton" Content="下载并重启更新" Click="InstallUpdate_Click" IsEnabled="False"/>
+                            <Button x:Name="CancelUpdateButton" Content="取消下载" Click="CancelUpdate_Click" Visibility="Collapsed"/>
+                        </StackPanel>
+                        <TextBlock x:Name="AppUpdateStatus" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="ReleaseNotesText" TextWrapping="Wrap" MaxHeight="220" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </Border>
                 <Border Padding="14" CornerRadius="8"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                     <StackPanel Spacing="10">
