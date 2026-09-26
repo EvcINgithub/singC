@@ -17,6 +17,9 @@ namespace singC.Helpers
         public const string NetworkTestPortKey = "NetworkTestPort";
         public const string NetworkTestExitIpUrlKey = "NetworkTestExitIpUrl";
         public const string NetworkTestHistoryKey = "NetworkTestHistory";
+        public const string NetworkTestTimeoutKey = "NetworkTestTimeout";
+        public const string NetworkTestCommonSitesKey = "NetworkTestCommonSites";
+        public const string NetworkTestCheckExitIpKey = "NetworkTestCheckExitIp";
         public const string AutoReconnectKey = "AutoReconnect";
         public const string ConnectionRefreshIntervalKey = "ConnectionRefreshInterval";
         public const string ConnectionSortKey = "ConnectionSort";

@@ -90,11 +90,14 @@ namespace singC
 
         private async void OnMainWindowClosed(object sender, WindowEventArgs args)
         {
+            // Flush before the window dispatcher shuts down; the close event cannot be awaited.
+            ConnectionViewModel.Instance.Traffic.Save();
             // 应用关闭时，停止 sing-box 进程
             if (SingBoxService.Instance.State != SingBoxRuntimeState.Stopped)
             {
                 await SingBoxService.Instance.StopAsync();
             }
+            await ConnectionViewModel.Instance.ShutdownAsync();
         }
     }
 }

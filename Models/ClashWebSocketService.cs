@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
@@ -36,6 +37,7 @@ namespace singC.Models
 
         // 事件：当 WebSocket 推送连接数据时触发
         public event Action<List<ConnectionInfo>>? OnConnectionsReceived;
+        public event Action<long, long>? OnTrafficTotalsReceived;
         public event Action<WebSocketConnectionState, int, string>? ConnectionStateChanged;
 
         public ClashWebSocketService(string baseUrl = "http://127.0.0.1:9090", string? secret = null)
@@ -131,20 +133,34 @@ namespace singC.Models
             var buffer = new byte[8192];
             while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
             {
-                var message = new StringBuilder();
+                using var message = new MemoryStream();
                 WebSocketReceiveResult result;
                 do
                 {
                     result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
                     if (result.MessageType == WebSocketMessageType.Close)
                         return;
-                    message.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                    message.Write(buffer, 0, result.Count);
                 } while (!result.EndOfMessage);
 
-                using var doc = JsonDocument.Parse(message.ToString());
-                if (doc.RootElement.TryGetProperty("connections", out var arr))
-                    OnConnectionsReceived?.Invoke(ParseConnections(arr));
+                if (result.MessageType == WebSocketMessageType.Text)
+                    ProcessMessage(message.ToArray());
             }
+        }
+
+        internal void ProcessMessage(ReadOnlyMemory<byte> message)
+        {
+            using var doc = JsonDocument.Parse(message);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return;
+            if (root.TryGetProperty("uploadTotal", out var upload) && upload.ValueKind == JsonValueKind.Number
+                && upload.TryGetInt64(out long up) && up >= 0
+                && root.TryGetProperty("downloadTotal", out var download) && download.ValueKind == JsonValueKind.Number
+                && download.TryGetInt64(out long down) && down >= 0)
+                OnTrafficTotalsReceived?.Invoke(up, down);
+
+            if (root.TryGetProperty("connections", out var arr))
+                OnConnectionsReceived?.Invoke(arr.ValueKind == JsonValueKind.Array ? ParseConnections(arr) : new());
         }
 
         private List<ConnectionInfo> ParseConnections(JsonElement connArray)

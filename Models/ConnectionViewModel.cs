@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 public class ConnectionViewModel : INotifyPropertyChanged
@@ -25,6 +26,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
 
     public ObservableCollection<ConnectionInfo> Connections { get; } = new();
     public ObservableCollection<ConnectionInfo> FilteredConnections { get; } = new();
+    public TrafficStatisticsViewModel Traffic { get; }
 
     private readonly DispatcherQueue _dispatcher;
     private ClashWebSocketService? _wsService;
@@ -32,6 +34,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
     private List<ConnectionInfo> _latestConnections = new();
     private readonly object _latestConnectionsLock = new();
     private bool _isStarting;
+    private readonly SemaphoreSlim _serviceGate = new(1, 1);
     private const int DefaultRefreshIntervalSeconds = 1;
     private const int MaxReconnectAttempts = 10;
 
@@ -140,6 +143,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
     private ConnectionViewModel(DispatcherQueue dispatcher)
     {
         _dispatcher = dispatcher;
+        Traffic = new TrafficStatisticsViewModel(dispatcher);
         _autoReconnect = !bool.TryParse(AppSettings.Get(AppSettings.AutoReconnectKey), out bool autoReconnect) || autoReconnect;
         _refreshIntervalSeconds = int.TryParse(AppSettings.Get(AppSettings.ConnectionRefreshIntervalKey), out int interval)
             ? Math.Clamp(interval, 1, 10)
@@ -175,10 +179,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
             {
                 try
                 {
-                    if (SingBoxService.Instance.IsRunning)
-                        await StartAsync();
-                    else
-                        await StopAsync();
+                    await SynchronizeServiceAsync();
                 }
                 catch (Exception ex)
                 {
@@ -188,7 +189,25 @@ public class ConnectionViewModel : INotifyPropertyChanged
         };
 
         if (SingBoxService.Instance.IsRunning)
-            _dispatcher.TryEnqueue(async () => await StartAsync());
+            _dispatcher.TryEnqueue(async () => await SynchronizeServiceAsync());
+    }
+
+    private async Task SynchronizeServiceAsync()
+    {
+        await _serviceGate.WaitAsync();
+        try
+        {
+            if (SingBoxService.Instance.IsRunning) await StartAsync();
+            else await StopAsync();
+        }
+        finally { _serviceGate.Release(); }
+    }
+
+    public async Task ShutdownAsync()
+    {
+        await _serviceGate.WaitAsync();
+        try { await StopAsync(); }
+        finally { _serviceGate.Release(); }
     }
 
     private void OnConnectionsReceived(List<ConnectionInfo> newList)
@@ -206,9 +225,12 @@ public class ConnectionViewModel : INotifyPropertyChanged
         try
         {
             await Task.Delay(1000);
+            if (!SingBoxService.Instance.IsRunning) return;
+            Traffic.BeginSession();
             service = new ClashWebSocketService();
             service.AutoReconnect = AutoReconnect;
             service.OnConnectionsReceived += OnConnectionsReceived;
+            service.OnTrafficTotalsReceived += Traffic.Record;
             service.ConnectionStateChanged += OnWebSocketStateChanged;
             await service.StartWebSocketAsync();
             _wsService = service;
@@ -220,11 +242,13 @@ public class ConnectionViewModel : INotifyPropertyChanged
             if (service != null)
             {
                 service.OnConnectionsReceived -= OnConnectionsReceived;
+                service.OnTrafficTotalsReceived -= Traffic.Record;
                 service.ConnectionStateChanged -= OnWebSocketStateChanged;
                 service.Dispose();
             }
 
             System.Diagnostics.Debug.WriteLine($"连接 WebSocket 启动失败: {ex.Message}");
+            Traffic.SetConnectionState(WebSocketConnectionState.Failed);
             _dispatcher.TryEnqueue(() =>
             {
                 lock (_latestConnectionsLock)
@@ -249,10 +273,14 @@ public class ConnectionViewModel : INotifyPropertyChanged
         if (_wsService != null)
         {
             _wsService.OnConnectionsReceived -= OnConnectionsReceived;
+            _wsService.OnTrafficTotalsReceived -= Traffic.Record;
             _wsService.ConnectionStateChanged -= OnWebSocketStateChanged;
             await _wsService.StopAsync();
+            _wsService.Dispose();
             _wsService = null;
         }
+        Traffic.SetConnectionState(WebSocketConnectionState.Stopped);
+        await Task.Run(Traffic.Save);
         ConnectionStatus = "未连接";
         LastError = string.Empty;
         ReconnectAttempt = 0;
@@ -262,6 +290,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
     {
         _dispatcher.TryEnqueue(() =>
         {
+            Traffic.SetConnectionState(state);
             ReconnectAttempt = attempt;
             LastError = error;
             ConnectionStatus = state switch

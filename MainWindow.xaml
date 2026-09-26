@@ -65,7 +65,7 @@
                     >
 
                         <TextBlock x:Name="TittleText" 
-                       Text="流量统计"
+                       Text="套餐流量"
                        FontWeight="SemiBold"
                        Foreground="{ThemeResource TextFillColorSecondary}"/>
 

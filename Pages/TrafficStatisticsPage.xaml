@@ -1,0 +1,107 @@
+<Page
+    x:Class="singC.Pages.TrafficStatisticsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:singC.Models"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <ScrollViewer HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Auto">
+        <StackPanel Padding="24" Spacing="20" MinWidth="440" MaxWidth="1100" HorizontalAlignment="Stretch">
+            <StackPanel Spacing="6">
+                <TextBlock Text="流量统计" Style="{StaticResource TitleTextBlockStyle}"/>
+                <TextBlock Text="{Binding Status}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="统计 sing-box 处理的流量，包含直连与代理；与服务商套餐计费可能不同。"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </StackPanel>
+
+            <Border Padding="20" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="↑ 上传速度"/>
+                        <TextBlock Text="{Binding UploadSpeed}" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="8">
+                        <TextBlock Text="↓ 下载速度"/>
+                        <TextBlock Text="{Binding DownloadSpeed}" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Padding="20" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <Grid RowSpacing="18" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="统计周期" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="1" Text="上传" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="2" Text="下载" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="3" Text="合计" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Row="1" Text="本次运行"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Session.UploadDisplay}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding Session.DownloadDisplay}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding Session.TotalDisplay}"/>
+                    <TextBlock Grid.Row="2" Text="今日"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Today.UploadDisplay}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding Today.DownloadDisplay}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding Today.TotalDisplay}"/>
+                    <TextBlock Grid.Row="3" Text="本月"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Month.UploadDisplay}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding Month.DownloadDisplay}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="3" Text="{Binding Month.TotalDisplay}"/>
+                    <TextBlock Grid.Row="4" Text="累计"/>
+                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding AllTime.UploadDisplay}"/>
+                    <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding AllTime.DownloadDisplay}"/>
+                    <TextBlock Grid.Row="4" Grid.Column="3" Text="{Binding AllTime.TotalDisplay}"/>
+                </Grid>
+            </Border>
+
+            <StackPanel Spacing="12">
+                <TextBlock Text="最近 7 天" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                <ItemsControl ItemsSource="{Binding RecentDays}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:DailyTraffic">
+                            <Grid Padding="16,10" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{x:Bind Date}"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="↑"/>
+                                    <TextBlock Text="{x:Bind Totals.UploadDisplay}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="↓"/>
+                                    <TextBlock Text="{x:Bind Totals.DownloadDisplay}"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="{Binding LastUpdated}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="按本地日期统计，跨日或断线期间的增量归入收到数据的日期。启动 sing-box 后自动采集，切换页面不会中断。"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="需启用 Clash API（127.0.0.1:9090），与连接页面共用数据源。" TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="{Binding StorageError}" TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

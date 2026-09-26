@@ -7,4 +7,11 @@
   </PropertyGroup>
   <ItemGroup><Compile Include="../UpdateCore/*.cs" Link="UpdateCore/%(Filename)%(Extension)"/></ItemGroup>
   <ItemGroup><Compile Remove="FixtureApp/**"/></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Models/TrafficStatistics.cs" Link="Models/TrafficStatistics.cs"/>
+    <Compile Include="../Models/NetworkTestService.cs" Link="Models/NetworkTestService.cs"/>
+    <Compile Include="../Models/TrafficData.cs" Link="Models/TrafficData.cs"/>
+    <Compile Include="../Models/ClashWebSocketService.cs" Link="Models/ClashWebSocketService.cs"/>
+    <Compile Include="../Helper/AppSettings.cs" Link="Helper/AppSettings.cs"/>
+  </ItemGroup>
 </Project>

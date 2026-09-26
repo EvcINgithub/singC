@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
-using System.Net;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,22 +16,29 @@ namespace singC.Pages;
 
 public sealed partial class NetworkTestPage : Page
 {
-    private const string DefaultTestUrl = "https://www.baidu.com/";
-    private const string DefaultHost = "www.baidu.com";
-    private const int DefaultPort = 443;
-    private const string DefaultExitIpUrl = "https://api.ipify.org?format=json";
-
     private readonly NetworkTestService _testService = new();
     private CancellationTokenSource? _testCts;
     private bool _isTesting;
+    private bool _historyDialogOpen;
+    private NetworkTestOptions? _runOptions;
+    private bool _stability;
+    private DateTime _startedAt;
+    private string _completion = "尚未测试";
 
-    public ObservableCollection<NetworkTestResult> Results { get; } = new();
+    public ObservableCollection<NetworkTestResult> WebsiteResults { get; } = new();
+    public ObservableCollection<NetworkTestResult> DetailResults { get; } = new();
     public ObservableCollection<NetworkTestRunSummary> History { get; } = new();
+    private readonly List<NetworkTestResult> _results = new();
 
     public NetworkTestPage()
     {
         InitializeComponent();
-        LoadTargets();
+        TestUrlBox.Text = AppSettings.Get(AppSettings.NetworkTestUrlKey) ?? NetworkTestOptions.DefaultTarget;
+        ExitIpBox.Text = AppSettings.Get(AppSettings.NetworkTestExitIpUrlKey) ?? NetworkTestOptions.DefaultExitIp;
+        TimeoutBox.Value = int.TryParse(AppSettings.Get(AppSettings.NetworkTestTimeoutKey), out int timeout)
+            ? Math.Clamp(timeout, 1, 30) : 5;
+        CommonSitesCheckBox.IsChecked = AppSettings.Get(AppSettings.NetworkTestCommonSitesKey) != "False";
+        CheckExitIpBox.IsChecked = AppSettings.Get(AppSettings.NetworkTestCheckExitIpKey) != "False";
         LoadHistory();
     }
 
@@ -42,90 +48,127 @@ public sealed partial class NetworkTestPage : Page
         base.OnNavigatedFrom(e);
     }
 
-    private void LoadTargets()
+    private void PresetButton_Click(object sender, RoutedEventArgs e)
     {
-        TestUrlBox.Text = AppSettings.Get(AppSettings.NetworkTestUrlKey) ?? DefaultTestUrl;
-        HostBox.Text = AppSettings.Get(AppSettings.NetworkTestHostKey) ?? DefaultHost;
-        ExitIpBox.Text = AppSettings.Get(AppSettings.NetworkTestExitIpUrlKey) ?? DefaultExitIpUrl;
-
-        PortBox.Value = int.TryParse(
-            AppSettings.Get(AppSettings.NetworkTestPortKey),
-            NumberStyles.Integer,
-            CultureInfo.InvariantCulture,
-            out int port) && port is >= 1 and <= 65535
-            ? port
-            : DefaultPort;
+        if (!_isTesting && sender is Button { Tag: string url }) TestUrlBox.Text = url;
     }
 
-    private void SaveTargets()
-    {
-        AppSettings.Set(AppSettings.NetworkTestUrlKey, TestUrlBox.Text.Trim());
-        AppSettings.Set(AppSettings.NetworkTestHostKey, HostBox.Text.Trim());
-        AppSettings.Set(AppSettings.NetworkTestExitIpUrlKey, ExitIpBox.Text.Trim());
-        AppSettings.Set(
-            AppSettings.NetworkTestPortKey,
-            ((int)PortBox.Value).ToString(CultureInfo.InvariantCulture));
-    }
+    private async void RunDiagnosticsButton_Click(object sender, RoutedEventArgs e) => await RunTestsAsync(false);
+    private async void RunStabilityButton_Click(object sender, RoutedEventArgs e) => await RunTestsAsync(true);
 
-    private async void RunBasicButton_Click(object sender, RoutedEventArgs e)
-    {
-        await RunTestsAsync(proxyMode: false);
-    }
-
-    private async void RunProxyButton_Click(object sender, RoutedEventArgs e)
-    {
-        await RunTestsAsync(proxyMode: true);
-    }
-
-    private async Task RunTestsAsync(bool proxyMode)
+    private async Task RunTestsAsync(bool stability)
     {
         if (_isTesting) return;
-
-        if (!TryReadTargets(out Uri? httpUri, out Uri? exitIpUri, out string host, out int port, out string error))
+        if (!TryReadOptions(stability, out var options, out var error))
         {
             SummaryTextBlock.Text = error;
             return;
         }
 
-        SaveTargets();
-        Results.Clear();
+        _runOptions = options;
+        _stability = stability;
+        _startedAt = DateTime.Now;
+        _completion = "测试中";
+        _results.Clear();
+        WebsiteResults.Clear();
+        DetailResults.Clear();
+        DetailsExpander.IsExpanded = false;
+        ResultHeading.Text = stability ? "连续请求结果" : "网站连通性";
+        SummaryTextBlock.Text = stability ? "正在连续发送 10 次请求…" : "正在检查网站和连接…";
+        LastRunTextBlock.Text = $"开始于 {_startedAt:HH:mm:ss}";
+        StorageMessageText.Text = "";
+        EmptyResultsText.Visibility = Visibility.Visible;
+        EmptyResultsText.Text = "正在等待网站响应，结果将逐项显示…";
         SetTestingState(true);
-        SummaryTextBlock.Text = proxyMode ? "正在测试代理 TUN 链路..." : "正在执行基础网络诊断...";
-        LastRunTextBlock.Text = string.Empty;
-        _testCts = new CancellationTokenSource();
-
+        using var cts = new CancellationTokenSource();
+        _testCts = cts;
         try
         {
-            var results = proxyMode
-                ? await _testService.RunProxyDiagnosticsAsync(
-                    httpUri!, exitIpUri!, _testCts.Token)
-                : await _testService.RunBasicDiagnosticsAsync(
-                    httpUri!, host, port, _testCts.Token);
-
-            foreach (var result in results)
-                Results.Add(result);
-
-            int successCount = results.Count(item => item.Status == NetworkTestStatus.Success);
-            int failedCount = results.Count(item => item.Status == NetworkTestStatus.Failed);
-            int warningCount = results.Count(item => item.Status == NetworkTestStatus.Warning);
-            SummaryTextBlock.Text = $"完成：{successCount} 项通过，{warningCount} 项警告，{failedCount} 项失败";
-            LastRunTextBlock.Text = $"最近测试：{DateTime.Now:HH:mm:ss}";
-            AddHistory(proxyMode, results);
+            SaveTargets(options!);
+            var progress = new ResultProgress(result =>
+            {
+                _results.Add(result);
+                if (result.Kind == NetworkTestKind.Http)
+                {
+                    WebsiteResults.Add(result);
+                    EmptyResultsText.Visibility = Visibility.Collapsed;
+                }
+                else DetailResults.Add(result);
+                SummaryTextBlock.Text = "测试中 · " + NetworkTestService.Summarize(_results, stability);
+            });
+            if (stability)
+                await _testService.RunStabilityAsync(options!, cts.Token, progress);
+            else
+                await _testService.RunDiagnosticsAsync(options!, SingBoxService.Instance.IsRunning,
+                    AppSettings.Get(AppSettings.PathKey.ConfigPathKey), cts.Token, progress);
+            _completion = "已完成";
         }
-        catch (OperationCanceledException) when (_testCts.IsCancellationRequested)
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            SummaryTextBlock.Text = "测试已取消";
+            _completion = "已取消，已完成的结果已保留";
         }
         catch (Exception ex)
         {
-            SummaryTextBlock.Text = $"测试失败：{ex.Message}";
+            _completion = $"测试未完成：{ex.Message}";
         }
         finally
         {
-            _testCts?.Dispose();
             _testCts = null;
             SetTestingState(false);
+            SummaryTextBlock.Text = _completion + "\n" + NetworkTestService.Summarize(_results, stability);
+            LastRunTextBlock.Text = $"最近测试：{_startedAt:HH:mm:ss}";
+            if (WebsiteResults.Count == 0) EmptyResultsText.Text = "本次尚无网站测试结果，可以重新开始诊断。";
+            if (_results.Any(r => r.Kind is NetworkTestKind.Dns or NetworkTestKind.Tcp && r.Status == NetworkTestStatus.Failed))
+                DetailsExpander.IsExpanded = true;
+            if (_results.Count > 0) AddHistory();
         }
+    }
+
+    // Service continuations preserve the UI context. Synchronous reporting avoids late
+    // Progress<T> callbacks modifying the next run after completion or cancellation.
+    private sealed class ResultProgress(Action<NetworkTestResult> report) : IProgress<NetworkTestResult>
+    {
+        public void Report(NetworkTestResult value) => report(value);
+    }
+
+    private bool TryReadOptions(bool stability, out NetworkTestOptions? options, out string error)
+    {
+        options = null;
+        error = "";
+        if (!NetworkTestOptions.TryParseUrl(TestUrlBox.Text, out var target))
+        {
+            error = "请输入完整的 HTTP/HTTPS 网址，例如 https://github.com/，网址中不能包含账号密码。";
+            return false;
+        }
+        Uri? exitIp = null;
+        if (!stability && CheckExitIpBox.IsChecked == true
+            && !NetworkTestOptions.TryParseUrl(ExitIpBox.Text, out exitIp))
+        {
+            error = "出口 IP 服务地址无效，请在高级选项中修改或关闭出口查询。";
+            AdvancedExpander.IsExpanded = true;
+            return false;
+        }
+        if (!double.IsFinite(TimeoutBox.Value) || TimeoutBox.Value % 1 != 0 || TimeoutBox.Value is < 1 or > 30)
+        {
+            error = "单项超时必须是 1 到 30 秒的整数。";
+            AdvancedExpander.IsExpanded = true;
+            return false;
+        }
+        options = new(target!, exitIp, (int)TimeoutBox.Value, CommonSitesCheckBox.IsChecked == true);
+        return true;
+    }
+
+    private void SaveTargets(NetworkTestOptions options)
+    {
+        try
+        {
+            AppSettings.Set(AppSettings.NetworkTestUrlKey, options.Target.AbsoluteUri);
+            AppSettings.Set(AppSettings.NetworkTestExitIpUrlKey, ExitIpBox.Text.Trim());
+            AppSettings.Set(AppSettings.NetworkTestTimeoutKey, options.TimeoutSeconds.ToString(CultureInfo.InvariantCulture));
+            AppSettings.Set(AppSettings.NetworkTestCommonSitesKey, (CommonSitesCheckBox.IsChecked == true).ToString());
+            AppSettings.Set(AppSettings.NetworkTestCheckExitIpKey, (CheckExitIpBox.IsChecked == true).ToString());
+        }
+        catch (Exception ex) { StorageMessageText.Text = $"测试参数未能保存：{ex.Message}"; }
     }
 
     private void LoadHistory()
@@ -133,126 +176,105 @@ public sealed partial class NetworkTestPage : Page
         try
         {
             var history = JsonSerializer.Deserialize<List<NetworkTestRunSummary>>(
-                AppSettings.Get(AppSettings.NetworkTestHistoryKey) ?? "[]") ?? new List<NetworkTestRunSummary>();
-            foreach (var item in history.Take(10)) History.Add(item);
+                AppSettings.Get(AppSettings.NetworkTestHistoryKey) ?? "[]");
+            foreach (var item in history?.Take(10) ?? Enumerable.Empty<NetworkTestRunSummary>()) History.Add(item);
         }
-        catch { }
+        catch { StorageMessageText.Text = "历史记录读取失败，仍可开始新的测试。"; }
     }
 
-    private void AddHistory(bool proxyMode, IReadOnlyCollection<NetworkTestResult> results)
+    private void AddHistory()
     {
         var summary = new NetworkTestRunSummary
         {
-            Timestamp = DateTime.Now,
-            Mode = proxyMode ? "代理链路" : "基础诊断",
-            Passed = results.Count(item => item.Status == NetworkTestStatus.Success),
-            Warnings = results.Count(item => item.Status == NetworkTestStatus.Warning),
-            Failed = results.Count(item => item.Status == NetworkTestStatus.Failed),
-            FailureText = string.Join("；", results.Where(item => item.Status == NetworkTestStatus.Failed)
-                .Select(item => $"{item.Name}: {item.Detail}").Take(3))
+            Timestamp = _startedAt,
+            Mode = (_stability ? "连续请求" : "一键诊断") + (_completion == "已完成" ? "" : "（未完成）"),
+            Passed = _results.Count(r => r.Status == NetworkTestStatus.Success),
+            Warnings = _results.Count(r => r.Status == NetworkTestStatus.Warning),
+            Failed = _results.Count(r => r.Status == NetworkTestStatus.Failed),
+            FailureText = string.Join("；", _results.Where(r => r.Status != NetworkTestStatus.Success)
+                .Select(r => $"{r.Name}：{r.Detail}").Take(3)),
+            Report = BuildReport()
         };
         History.Insert(0, summary);
         while (History.Count > 10) History.RemoveAt(History.Count - 1);
-        AppSettings.Set(AppSettings.NetworkTestHistoryKey, JsonSerializer.Serialize(History));
+        try { AppSettings.Set(AppSettings.NetworkTestHistoryKey, JsonSerializer.Serialize(History)); }
+        catch (Exception ex) { StorageMessageText.Text = $"本次历史记录未能保存：{ex.Message}"; }
     }
 
-    private bool TryReadTargets(
-        out Uri? httpUri,
-        out Uri? exitIpUri,
-        out string host,
-        out int port,
-        out string error)
+    private string BuildReport()
     {
-        httpUri = null;
-        exitIpUri = null;
-        host = HostBox.Text.Trim();
-        port = 0;
-        error = string.Empty;
-
-        if (!Uri.TryCreate(TestUrlBox.Text.Trim(), UriKind.Absolute, out httpUri)
-            || (httpUri.Scheme != Uri.UriSchemeHttp && httpUri.Scheme != Uri.UriSchemeHttps))
+        if (_runOptions == null) return "";
+        return string.Join(Environment.NewLine, new[]
         {
-            error = "HTTP/HTTPS 地址无效，请输入完整 URL。";
-            return false;
-        }
-
-        if (!Uri.TryCreate(ExitIpBox.Text.Trim(), UriKind.Absolute, out exitIpUri)
-            || (exitIpUri.Scheme != Uri.UriSchemeHttp && exitIpUri.Scheme != Uri.UriSchemeHttps))
-        {
-            error = "出口 IP 服务地址无效，请输入完整 URL。";
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(host) || Uri.CheckHostName(host) == UriHostNameType.Unknown)
-        {
-            error = "DNS/TCP 主机名无效。";
-            return false;
-        }
-
-        if (double.IsNaN(PortBox.Value)
-            || PortBox.Value % 1 != 0
-            || PortBox.Value is < 1 or > 65535)
-        {
-            error = "端口必须是 1 到 65535 之间的整数。";
-            return false;
-        }
-
-        port = (int)PortBox.Value;
-        return true;
+            "singC 网络诊断报告",
+            $"开始时间：{_startedAt:yyyy-MM-dd HH:mm:ss}",
+            $"模式：{(_stability ? "连续请求" : "一键诊断")} · {_completion}",
+            $"目标：{_runOptions.Target}",
+            $"单项超时：{_runOptions.TimeoutSeconds} 秒",
+            _stability ? $"计划请求：{NetworkTestService.StabilityAttempts} 次"
+                : $"网站列表：{string.Join("，", _runOptions.HttpTargets)}",
+            !_stability && _runOptions.ExitIp != null ? $"出口查询：{_runOptions.ExitIp}" : "未执行出口查询",
+            "HTTP 跟随系统代理、TUN 和路由；DNS/TCP 使用系统网络，不能单独证明代理生效。",
+            NetworkTestService.Summarize(_results, _stability),
+            ""
+        }.Concat(_results.Select(r => r.ReportLine)));
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
         if (!_isTesting) return;
-        SummaryTextBlock.Text = "正在取消测试...";
+        SummaryTextBlock.Text = "正在取消，已完成的结果将保留…";
+        CancelButton.IsEnabled = false;
         _testCts?.Cancel();
-    }
-
-    private void ClearResultsButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_isTesting) return;
-        Results.Clear();
-        SummaryTextBlock.Text = "等待测试";
-        LastRunTextBlock.Text = string.Empty;
     }
 
     private void CopyReportButton_Click(object sender, RoutedEventArgs e)
     {
-        if (Results.Count == 0) return;
-
-        string report = string.Join(
-            Environment.NewLine,
-            new[]
-            {
-                "singC 网络测试报告",
-                $"生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}",
-                $"HTTP/HTTPS：{TestUrlBox.Text.Trim()}",
-                $"DNS/TCP：{HostBox.Text.Trim()}:{GetPortText()}",
-                $"出口 IP 服务：{ExitIpBox.Text.Trim()}",
-                string.Empty
-            }.Concat(Results.Select(item => item.ReportLine)));
-
-        var package = new DataPackage();
-        package.SetText(report);
-        Clipboard.SetContent(package);
+        if (_results.Count == 0) return;
+        try
+        {
+            var package = new DataPackage();
+            package.SetText(BuildReport());
+            Clipboard.SetContent(package);
+            StorageMessageText.Text = "报告已复制。";
+        }
+        catch (Exception ex) { StorageMessageText.Text = $"复制失败：{ex.Message}"; }
     }
 
-    private string GetPortText()
+    private async void HistoryList_ItemClick(object sender, ItemClickEventArgs e)
     {
-        return double.IsNaN(PortBox.Value)
-            ? "--"
-            : PortBox.Value.ToString(CultureInfo.InvariantCulture);
+        if (_historyDialogOpen || e.ClickedItem is not NetworkTestRunSummary item) return;
+        _historyDialogOpen = true;
+        var report = string.IsNullOrWhiteSpace(item.Report) ? item.DisplayText + "\n" + item.FailureDisplayText : item.Report;
+        var dialog = new ContentDialog
+        {
+            Title = "历史测试报告",
+            Content = new ScrollViewer
+            {
+                MaxHeight = 440,
+                Content = new TextBlock { Text = report, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }
+            },
+            CloseButtonText = "关闭",
+            XamlRoot = XamlRoot
+        };
+        try { await dialog.ShowAsync(); }
+        catch (Exception ex) { StorageMessageText.Text = $"无法打开历史报告：{ex.Message}"; }
+        finally { _historyDialogOpen = false; }
     }
 
     private void SetTestingState(bool testing)
     {
         _isTesting = testing;
-        RunBasicButton.IsEnabled = !testing;
-        RunProxyButton.IsEnabled = !testing;
+        RunDiagnosticsButton.IsEnabled = !testing;
+        RunStabilityButton.IsEnabled = !testing;
         CancelButton.IsEnabled = testing;
+        CancelButton.Visibility = testing ? Visibility.Visible : Visibility.Collapsed;
         TestUrlBox.IsEnabled = !testing;
-        HostBox.IsEnabled = !testing;
-        PortBox.IsEnabled = !testing;
-        ExitIpBox.IsEnabled = !testing;
+        CommonSitesCheckBox.IsEnabled = !testing;
+        foreach (var button in PresetPanel.Children.OfType<Button>()) button.IsEnabled = !testing;
+        AdvancedExpander.IsEnabled = !testing;
+        TestProgress.IsActive = testing;
+        TestProgress.Visibility = testing ? Visibility.Visible : Visibility.Collapsed;
+        CopyReportButton.IsEnabled = !testing && _results.Count > 0;
     }
 }

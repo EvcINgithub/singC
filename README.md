@@ -15,6 +15,50 @@ Publish from a fresh checkout into a new output directory. Package the output
 before running the application. Do not package a directory used to run the app,
 which may contain local runtime data.
 
+## Local traffic statistics
+
+Open **流量统计** to view upload/download speeds, usage for the current sing-box
+run, today, this month, all recorded time, and the last seven days. Collection
+continues when switching pages. Enable sing-box's Clash API on `127.0.0.1:9090`
+without a secret, as required by the existing Connections page.
+
+Statistics use the API's cumulative upload/download counters, including closed
+connections, direct traffic and proxy traffic. They are not provider billing
+figures or system-wide network usage. Speeds are calculated from consecutive
+samples; reconnects retain the counter baseline and stale samples show zero speed.
+The first sample includes traffic since the managed sing-box process started.
+
+Daily history is stored in `%LOCALAPPDATA%/singC/traffic-statistics.json`, saved
+every 15 seconds when traffic changes and flushed on stop/exit. An abrupt exit
+may lose unsaved samples. Dates use local time; increments spanning midnight
+or a connection gap are assigned to the date they are received. Traffic after
+the last received sample cannot be recovered if the core stops before another
+sample arrives. Restarting sing-box starts a new session and preserves history.
+
+## Network diagnostics
+
+Open **网络测试** and select **一键诊断** to check the selected URL and, by default,
+Baidu, GitHub and Google in parallel. Results appear as each probe completes.
+Disable the comparison checkbox to test only your URL. The host and port are
+derived from that URL. The selected target and any comparison site that fails
+to respond also receive DNS and TCP checks under **连接与环境详情**.
+
+HTTP error responses such as 403, 429 and 502 are shown as website warnings,
+with suggestions, separately from connection failures. Advanced options control
+the timeout and optional exit-IP lookup. Neither a stopped sing-box process nor
+an unavailable Clash API prevents website testing. The controller check reads
+the endpoint and secret from the selected sing-box configuration.
+
+**连续请求 10 次** measures only the selected URL, showing HTTP 2xx success rate
+and successful response times. Each request starts a new connection; timing ends
+at the response headers. This is not a bandwidth test or an ICMP packet-loss test.
+HTTP follows the system proxy and current TUN/routing configuration; DNS/TCP use
+the system network. These checks cannot prove a request passed through a proxy,
+and the exit-IP result applies only to the queried service.
+
+Cancellation preserves completed results. Reports capture the tested settings,
+not subsequent input edits; the last ten reports can be reopened from history.
+
 ## Personal services
 
 Open Settings > Personal services to enter the full HTTP/HTTPS URL for the

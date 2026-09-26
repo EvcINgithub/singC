@@ -3,191 +3,142 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:singC.Models"
+    xmlns:converters="using:singC.Converters"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Page.Resources>
+        <converters:NetworkTestStatusToBrushConverter x:Key="StatusBrush"/>
+        <DataTemplate x:Key="ResultTemplate" x:DataType="models:NetworkTestResult">
+            <Border Padding="16" Margin="0,0,0,8" CornerRadius="8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <Grid ColumnSpacing="12" RowSpacing="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <FontIcon Glyph="{x:Bind StatusGlyph}" FontSize="16"
+                              Foreground="{x:Bind Status, Converter={StaticResource StatusBrush}}"/>
+                    <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="{x:Bind DurationText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text="{x:Bind StatusText}"
+                                   Foreground="{x:Bind Status, Converter={StaticResource StatusBrush}}"/>
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{x:Bind Detail}"
+                               TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{x:Bind Advice}"
+                               TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </Page.Resources>
 
-    <Grid Padding="24" RowSpacing="14">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="160"/>
-        </Grid.RowDefinitions>
-
-        <Grid Grid.Row="0" ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Spacing="2">
-                <TextBlock Text="网络测试" Style="{StaticResource TitleTextBlockStyle}"/>
-                <TextBlock Text="检查本机网络、Clash API 和当前 sing-box TUN 链路"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Padding="24" Spacing="18" MaxWidth="1100" HorizontalAlignment="Stretch">
+            <StackPanel Spacing="4">
+                <TextBlock Text="网络诊断" Style="{StaticResource TitleTextBlockStyle}"/>
+                <TextBlock Text="检查哪些网站能访问，再定位域名解析、连接或网站响应问题。"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
             </StackPanel>
 
-            <Button Grid.Column="1"
-                    x:Name="CopyReportButton"
-                    Click="CopyReportButton_Click"
-                    ToolTipService.ToolTip="复制测试报告">
-                <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
-            </Button>
-            <Button Grid.Column="2"
-                    Click="ClearResultsButton_Click"
-                    ToolTipService.ToolTip="清空测试结果">
-                <FontIcon Glyph="&#xE894;" FontSize="14"/>
-            </Button>
-        </Grid>
+            <Border Padding="18" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="10">
+                        <TextBox x:Name="TestUrlBox" Header="要排查的网址"
+                                 PlaceholderText="https://github.com/" HorizontalAlignment="Stretch"/>
+                        <StackPanel x:Name="PresetPanel" Orientation="Horizontal" Spacing="8">
+                            <Button Content="百度" Tag="https://www.baidu.com/" Click="PresetButton_Click"/>
+                            <Button Content="GitHub" Tag="https://github.com/" Click="PresetButton_Click"/>
+                            <Button Content="Google" Tag="https://www.google.com/" Click="PresetButton_Click"/>
+                        </StackPanel>
+                        <CheckBox x:Name="CommonSitesCheckBox" IsChecked="True"
+                                  Content="同时检查百度、GitHub、Google，方便对照"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="RunDiagnosticsButton" Content="一键诊断"
+                                Style="{StaticResource AccentButtonStyle}" Click="RunDiagnosticsButton_Click"/>
+                        <Button x:Name="RunStabilityButton" Content="连续请求 10 次"
+                                ToolTipService.ToolTip="仅测试上方网址，查看是否偶发失败及响应耗时"
+                                Click="RunStabilityButton_Click"/>
+                        <Button x:Name="CancelButton" Content="取消" Visibility="Collapsed"
+                                Click="CancelButton_Click" IsEnabled="False"/>
+                    </StackPanel>
+                    <TextBlock Text="无需手填主机或端口。HTTP 请求跟随当前系统代理、TUN 和路由规则。"
+                               TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </Border>
 
-        <Border Grid.Row="1"
-                Padding="14"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1"
-                CornerRadius="8">
-            <StackPanel Spacing="12">
-                <TextBlock Text="测试目标" Style="{StaticResource SubtitleTextBlockStyle}"/>
+            <Expander x:Name="AdvancedExpander" Header="高级选项" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="12">
+                    <NumberBox x:Name="TimeoutBox" Header="单项超时（秒）" Minimum="1" Maximum="30"
+                               Value="5" SmallChange="1" SpinButtonPlacementMode="Compact" Width="200" HorizontalAlignment="Left"/>
+                    <CheckBox x:Name="CheckExitIpBox" Content="一键诊断时查询当前出口 IP" IsChecked="True"/>
+                    <TextBox x:Name="ExitIpBox" Header="出口 IP 查询服务"
+                             PlaceholderText="https://api.ipify.org?format=json"/>
+                    <TextBlock Text="出口地址是查询服务看到的结果；不同网站可能走不同路由。连续请求测试不查询出口 IP。"
+                               TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </Expander>
+
+            <Border Padding="16" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                 <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*"/>
-                        <ColumnDefinition Width="1.2*"/>
-                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBox x:Name="TestUrlBox"
-                             Header="HTTP/HTTPS 地址"
-                             PlaceholderText="https://www.baidu.com/"/>
-                    <TextBox Grid.Column="1"
-                             x:Name="HostBox"
-                             Header="DNS/TCP 主机"
-                             PlaceholderText="www.baidu.com"/>
-                    <NumberBox Grid.Column="2"
-                               x:Name="PortBox"
-                               Header="端口"
-                               Minimum="1"
-                               Maximum="65535"
-                               SmallChange="1"
-                               />
+                    <ProgressRing x:Name="TestProgress" Width="24" Height="24" IsActive="False" Visibility="Collapsed"/>
+                    <StackPanel Grid.Column="1" Spacing="6">
+                        <TextBlock x:Name="SummaryTextBlock" Text="点击「一键诊断」开始，无需先启动 sing-box。"
+                                   TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                        <TextBlock x:Name="LastRunTextBlock" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    </StackPanel>
+                    <Button x:Name="CopyReportButton" Content="复制报告" Click="CopyReportButton_Click"
+                            IsEnabled="False" VerticalAlignment="Top"/>
                 </Grid>
+            </Border>
 
-                <TextBox x:Name="ExitIpBox"
-                         Header="出口 IP 服务地址"
-                         PlaceholderText="https://api.ipify.org?format=json"/>
-
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="RunBasicButton"
-                            Click="RunBasicButton_Click"
-                            Style="{StaticResource AccentButtonStyle}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE9D9;" FontSize="14"/>
-                            <TextBlock Text="基础诊断"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="RunProxyButton"
-                            Click="RunProxyButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE774;" FontSize="14"/>
-                            <TextBlock Text="代理链路测试"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="CancelButton"
-                            Click="CancelButton_Click"
-                            IsEnabled="False">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE711;" FontSize="14"/>
-                            <TextBlock Text="取消"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
+            <StackPanel Spacing="10">
+                <TextBlock x:Name="ResultHeading" Text="网站连通性" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                <TextBlock x:Name="EmptyResultsText" Text="测试后会在这里逐项显示网站的响应与排查建议。"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <ItemsControl ItemsSource="{x:Bind WebsiteResults}" ItemTemplate="{StaticResource ResultTemplate}"/>
             </StackPanel>
-        </Border>
 
-        <Grid Grid.Row="2" ColumnSpacing="12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="SummaryTextBlock"
-                       Text="等待测试"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       IsTextSelectionEnabled="True"/>
-            <TextBlock Grid.Column="1"
-                       x:Name="LastRunTextBlock"
-                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                       IsTextSelectionEnabled="True"/>
-        </Grid>
+            <Expander x:Name="DetailsExpander" Header="连接与环境详情" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="查看目标网址的 DNS、TCP 和本机状态。DNS/TCP 使用系统网络，不使用 HTTP 代理；不同检查的路径可能不同。"
+                               TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <ItemsControl ItemsSource="{x:Bind DetailResults}" ItemTemplate="{StaticResource ResultTemplate}"/>
+                </StackPanel>
+            </Expander>
 
-        <ListView Grid.Row="3"
-                  x:Name="ResultListView"
-                  ItemsSource="{x:Bind Results, Mode=OneWay}"
-                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                  BorderThickness="1">
-            <ListView.ItemContainerStyle>
-                <Style TargetType="ListViewItem">
-                    <Setter Property="Padding" Value="0"/>
-                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                </Style>
-            </ListView.ItemContainerStyle>
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="models:NetworkTestResult">
-                    <Border Padding="12"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="0,0,0,1">
-                        <Grid ColumnSpacing="10" RowSpacing="4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="150"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <FontIcon Glyph="{x:Bind StatusGlyph}"
-                                      FontSize="16"
-                                      VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="1"
-                                       Text="{x:Bind Name}"
-                                       FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2"
-                                       Text="{x:Bind StatusText}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       VerticalAlignment="Center"/>
-                            <StackPanel Grid.Column="3"
-                                        Orientation="Horizontal"
-                                        Spacing="10">
-                                <TextBlock Text="{x:Bind DurationText}"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind Detail}"
-                                           TextWrapping="WrapWholeWords"
-                                           IsTextSelectionEnabled="True"
+            <Expander Header="最近 10 次测试 · 点击查看完整报告" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch">
+                <ListView ItemsSource="{x:Bind History}" IsItemClickEnabled="True" ItemClick="HistoryList_ItemClick"
+                          SelectionMode="None" MaxHeight="300">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:NetworkTestRunSummary">
+                            <StackPanel Spacing="4" Padding="4,8">
+                                <TextBlock Text="{x:Bind DisplayText}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{x:Bind FailureDisplayText}" TextWrapping="Wrap"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
-                        </Grid>
-                    </Border>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
-
-        <ListView Grid.Row="4"
-                  ItemsSource="{x:Bind History, Mode=OneWay}"
-                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                  BorderThickness="1"
-                  Header="最近 10 次测试">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="models:NetworkTestRunSummary">
-                    <Grid ColumnSpacing="12" Padding="10,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="360"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="{x:Bind DisplayText}" IsTextSelectionEnabled="True"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="{x:Bind FailureDisplayText}"
-                                   TextTrimming="CharacterEllipsis"
-                                   IsTextSelectionEnabled="True"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </Grid>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
-    </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Expander>
+            <TextBlock x:Name="StorageMessageText" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
+    </ScrollViewer>
 </Page>

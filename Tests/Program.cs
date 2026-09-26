@@ -23,6 +23,8 @@ void Fixture(string dir, string version, params string[] extras)
 }
 try
 {
+    TrafficStatisticsTests.Run(Dir("traffic"), Check);
+    await NetworkDiagnosticsTests.RunAsync(Check);
     string Json(string tag = "v1.0.2", bool prerelease = false, string owner = "EvcINgithub/singC") => JsonSerializer.Serialize(new
     {
         tag_name = tag, draft = false, prerelease, body = "release notes",
