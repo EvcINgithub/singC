@@ -7,6 +7,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Net.Sockets;
+using System.Security.Principal;
 
 namespace singC.Models
 {
@@ -56,7 +58,24 @@ namespace singC.Models
         private readonly object _stateLock = new();
         private Process? _process;
         private SingBoxRuntimeState _state = SingBoxRuntimeState.Stopped;
-        private bool _stopRequested;
+        private bool _isSwitching;
+        private bool _shutdownRequested;
+        private long _runGeneration;
+        private LaunchPlan? _activePlan;
+        private readonly SystemProxyLease _systemProxy;
+        private readonly Func<string?> _getExecutable;
+        private readonly Func<string?> _getConfig;
+        private readonly Action<ProxyMode, int> _saveMode;
+        private readonly Func<bool> _canUseTun;
+        private readonly string _runtimeDirectory;
+        private ProxyMode _preferredMode;
+        private int _proxyPort = 7890;
+        private sealed record LaunchPlan(string Executable, string SourcePath, string RuntimePath, ProxyMode Mode, PreparedModeConfig Config);
+
+        public ProxyMode PreferredMode => _preferredMode;
+        public int ProxyPort => _proxyPort;
+        public ProxyMode? ActiveMode => _activePlan?.Mode;
+        public long RunGeneration => Interlocked.Read(ref _runGeneration);
         private string _lastError = string.Empty;
         private int? _lastExitCode;
 
@@ -66,7 +85,7 @@ namespace singC.Models
         }
 
         public bool IsRunning => State == SingBoxRuntimeState.Running;
-        public bool IsBusy => State is SingBoxRuntimeState.Starting or SingBoxRuntimeState.Stopping;
+        public bool IsBusy => _isSwitching || State is SingBoxRuntimeState.Starting or SingBoxRuntimeState.Stopping;
         public string LastError
         {
             get { lock (_stateLock) return _lastError; }
@@ -80,128 +99,271 @@ namespace singC.Models
         // 当运行状态改变时触发，方便 UI 刷新
         public event Action? StateChanged;
         public event DataReceivedEventHandler? ErrorDataReceived;
-        private SingBoxService()
+        private SingBoxService() : this(
+            () => AppSettings.Get(AppSettings.PathKey.SingBoxPathKey),
+            () => AppSettings.Get(AppSettings.PathKey.ConfigPathKey),
+            (mode, port) => AppSettings.Set(AppSettings.ProxyModeKey, $"{mode}:{port}"),
+            new WindowsSystemProxy(),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "singC"),
+            IsAdministrator)
         {
+            var preference = (AppSettings.Get(AppSettings.ProxyModeKey) ?? "").Split(':');
+            if (preference.Length == 2 && Enum.TryParse(preference[0], out ProxyMode mode) && Enum.IsDefined(mode)
+                && int.TryParse(preference[1], out int port) && port is >= 1 and <= 65535)
+            { _preferredMode = mode; _proxyPort = port; }
+        }
+
+        internal SingBoxService(Func<string?> getExecutable, Func<string?> getConfig, Action<ProxyMode, int> saveMode,
+            ISystemProxyBackend proxyBackend, string dataDirectory, Func<bool> canUseTun)
+        {
+            _getExecutable = getExecutable;
+            _getConfig = getConfig;
+            _saveMode = saveMode;
+            _canUseTun = canUseTun;
+            _runtimeDirectory = Path.Combine(dataDirectory, "runtime");
+            _systemProxy = new(proxyBackend, Path.Combine(dataDirectory, "system-proxy-backup.json"));
+            try { _systemProxy.Recover(); }
+            catch (Exception ex) { _lastError = "恢复上次系统代理失败：" + ex.Message; }
+        }
+
+        private static bool IsAdministrator()
+        {
+            if (!OperatingSystem.IsWindows()) return false;
+            using var identity = WindowsIdentity.GetCurrent();
+            return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
         }
 
         public async Task StartAsync(CancellationToken cancellationToken = default)
         {
             await _operationGate.WaitAsync(cancellationToken);
+            LaunchPlan? plan = null;
             try
             {
-                if (State is SingBoxRuntimeState.Running or SingBoxRuntimeState.Starting)
-                    return;
-
+                if (IsRunning) return;
+                if (_process != null) throw new InvalidOperationException("请先停止尚未退出的 sing-box 进程。");
                 SetState(SingBoxRuntimeState.Starting);
                 SetLastError(string.Empty, null);
-                var validation = await ValidateConfigAsync(cancellationToken: cancellationToken);
-                if (!validation.IsValid)
+                plan = await PrepareLaunchAsync(_preferredMode, _proxyPort, null, cancellationToken);
+                await StartPlanAsync(plan, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                if (!ReferenceEquals(_activePlan, plan)) DeleteRuntime(plan);
+                SetLastError(ex.Message, LastExitCode);
+                SetState(SingBoxRuntimeState.Failed);
+                throw;
+            }
+            finally { _operationGate.Release(); }
+        }
+
+        public async Task SwitchModeAsync(ProxyMode mode, int proxyPort, CancellationToken cancellationToken = default)
+        {
+            if (!Enum.IsDefined(mode) || proxyPort is < 1 or > 65535)
+                throw new ArgumentException("请选择有效的运行模式和代理端口。");
+            await _operationGate.WaitAsync(cancellationToken);
+            LaunchPlan? candidate = null;
+            LaunchPlan? previous = null;
+            bool stopped = false;
+            try
+            {
+                if (_shutdownRequested) throw new InvalidOperationException("应用正在退出。");
+                if (_preferredMode == mode && _proxyPort == proxyPort) return;
+                _isSwitching = true;
+                SetState(State);
+                if (!IsRunning)
                 {
-                    SetLastError(validation.ToUserMessage(), validation.ExitCode);
-                    SetState(SingBoxRuntimeState.Failed);
-                    throw new InvalidOperationException(validation.ToUserMessage());
+                    if (_process != null) throw new InvalidOperationException("请先停止尚未退出的 sing-box 进程。");
+                    SaveMode(mode, proxyPort);
+                    return;
                 }
-
-                string singBoxPath = AppSettings.Get(AppSettings.PathKey.SingBoxPathKey)?.Trim() ?? string.Empty;
-                string configPath = AppSettings.Get(AppSettings.PathKey.ConfigPathKey)?.Trim() ?? string.Empty;
-                var startInfo = new ProcessStartInfo
+                previous = _activePlan!;
+                candidate = await PrepareLaunchAsync(mode, proxyPort, previous, cancellationToken);
+                // Once the old process is stopped, complete the switch or rollback as a transaction.
+                cancellationToken.ThrowIfCancellationRequested();
+                await StopCoreAsync(keepRuntime: true, CancellationToken.None);
+                stopped = true;
+                await StartPlanAsync(candidate, CancellationToken.None);
+                SaveMode(mode, proxyPort);
+                DeleteRuntime(previous);
+            }
+            catch (Exception ex)
+            {
+                if (previous != null && (stopped || _activePlan == null))
                 {
-                    FileName = singBoxPath,
-                    UseShellExecute = false,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(configPath) ?? AppContext.BaseDirectory
-                };
-                startInfo.ArgumentList.Add("run");
-                startInfo.ArgumentList.Add("-c");
-                startInfo.ArgumentList.Add(configPath);
-
-                var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-                process.ErrorDataReceived += OnProcessErrorDataReceived;
-                process.Exited += (s, e) => HandleProcessExited(process);
-                lock (_stateLock)
-                {
-                    _process = process;
-                    _stopRequested = false;
-                }
-
-                try
-                {
-                    if (!process.Start())
-                        throw new InvalidOperationException("进程启动失败，可能权限不足或路径错误。");
-                    process.BeginErrorReadLine();
-                    if (process.HasExited)
+                    try
                     {
-                        HandleProcessExited(process);
-                        throw new InvalidOperationException(BuildExitMessage());
+                        await StopCoreAsync(keepRuntime: true, CancellationToken.None);
+                        await StartPlanAsync(previous, CancellationToken.None);
                     }
-                    SetState(SingBoxRuntimeState.Running);
-                }
-                catch (Exception ex)
-                {
-                    lock (_stateLock)
+                    catch (Exception rollback)
                     {
-                        if (ReferenceEquals(_process, process)) _process = null;
-                        _lastError = ex.Message;
+                        if (!ReferenceEquals(_activePlan, previous)) DeleteRuntime(previous);
+                        SetLastError($"切换失败：{ex.Message}；恢复原模式也失败：{rollback.Message}", null);
+                        SetState(SingBoxRuntimeState.Failed);
+                        throw new InvalidOperationException(LastError, ex);
                     }
-                    TryKill(process);
-                    process.Dispose();
-                    SetState(SingBoxRuntimeState.Failed);
-                    throw new InvalidOperationException($"启动 sing-box 失败：{ex.Message}", ex);
+                    SetLastError($"切换失败，已恢复{ProxyModeConfig.DisplayName(previous.Mode)}：{ex.Message}", null);
+                    throw new InvalidOperationException(LastError, ex);
                 }
+                throw;
             }
             finally
             {
+                if (!ReferenceEquals(_activePlan, candidate)) DeleteRuntime(candidate);
+                _isSwitching = false;
+                SetState(State);
                 _operationGate.Release();
+            }
+        }
+
+        private void SaveMode(ProxyMode mode, int port)
+        {
+            _saveMode(mode, port);
+            _preferredMode = mode;
+            _proxyPort = port;
+        }
+
+        private async Task<LaunchPlan> PrepareLaunchAsync(ProxyMode mode, int port, LaunchPlan? previous, CancellationToken token)
+        {
+            _systemProxy.Recover();
+            string executable = previous?.Executable ?? _getExecutable()?.Trim() ?? "";
+            string source = previous?.SourcePath ?? _getConfig()?.Trim() ?? "";
+            if (!File.Exists(executable)) throw new FileNotFoundException("未找到 sing-box 可执行文件，请先在设置中选择。");
+            if (!File.Exists(source)) throw new FileNotFoundException("未找到 sing-box 配置文件，请先选择配置。");
+            var config = ProxyModeConfig.Build(await File.ReadAllTextAsync(source, token), mode, port);
+            if (config.HasTun && !_canUseTun())
+                throw new InvalidOperationException("TUN 模式需要管理员权限，请以管理员身份运行 singC 后重试。");
+            string directory = _runtimeDirectory;
+            Directory.CreateDirectory(directory);
+            var plan = new LaunchPlan(executable, source, Path.Combine(directory, Guid.NewGuid().ToString("N") + ".json"), mode, config);
+            try
+            {
+                await File.WriteAllTextAsync(plan.RuntimePath, config.Json, new UTF8Encoding(false), token);
+                var validation = await ValidateConfigAsync(plan.RuntimePath, cancellationToken: token,
+                    workingDirectory: Path.GetDirectoryName(source), executablePath: executable);
+                if (!validation.IsValid) throw new InvalidOperationException(validation.ToUserMessage());
+                token.ThrowIfCancellationRequested();
+                return plan;
+            }
+            catch { DeleteRuntime(plan); throw; }
+        }
+
+        private async Task StartPlanAsync(LaunchPlan plan, CancellationToken token)
+        {
+            if (_shutdownRequested) throw new InvalidOperationException("应用正在退出。");
+            if (_process != null) throw new InvalidOperationException("上一个内核进程尚未停止。");
+            SetState(SingBoxRuntimeState.Starting);
+            SetLastError(string.Empty, null);
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = plan.Executable, UseShellExecute = false, RedirectStandardError = true,
+                CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(plan.SourcePath) ?? AppContext.BaseDirectory
+            };
+            startInfo.ArgumentList.Add("run");
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add(plan.RuntimePath);
+            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+            process.ErrorDataReceived += OnProcessErrorDataReceived;
+            process.Exited += (sender, args) => { _ = HandleProcessExitedAsync(process); };
+            lock (_stateLock) { _process = process; _activePlan = plan; }
+            bool started = false;
+            try
+            {
+                if (!process.Start()) throw new InvalidOperationException("无法启动 sing-box。");
+                started = true;
+                process.BeginErrorReadLine();
+                await Task.Delay(1000, token);
+                if (process.HasExited) throw new InvalidOperationException(BuildExitMessage());
+                if (plan.Config.ProxyPort is { } port)
+                {
+                    var wait = Stopwatch.StartNew();
+                    while (true)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (process.HasExited) throw new InvalidOperationException(BuildExitMessage());
+                        try
+                        {
+                            using var client = new TcpClient();
+                            using var probeTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                            probeTimeout.CancelAfter(TimeSpan.FromMilliseconds(500));
+                            await client.ConnectAsync(plan.Config.ProxyHost!, port, probeTimeout.Token);
+                            break;
+                        }
+                        catch (Exception ex) when ((ex is SocketException or OperationCanceledException) && !token.IsCancellationRequested)
+                        {
+                            if (wait.Elapsed > TimeSpan.FromSeconds(10))
+                                throw new IOException("代理端口未就绪，请检查端口占用或 sing-box 日志。", ex);
+                            await Task.Delay(100, token);
+                        }
+                    }
+                }
+                if (process.HasExited) throw new InvalidOperationException(BuildExitMessage());
+                if (_shutdownRequested) throw new InvalidOperationException("应用正在退出。");
+                if (plan.Config.ProxyPort != null || plan.Config.DisableSystemProxy)
+                    _systemProxy.Apply(plan.Config.ProxyHost, plan.Config.ProxyPort);
+                Interlocked.Increment(ref _runGeneration);
+                SetState(SingBoxRuntimeState.Running);
+            }
+            catch
+            {
+                if (started)
+                {
+                    if (!process.HasExited) process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                lock (_stateLock) { _process = null; _activePlan = null; }
+                try { _systemProxy.Restore(); } finally { process.Dispose(); }
+                throw;
             }
         }
 
         public async Task StopAsync(CancellationToken cancellationToken = default)
         {
             await _operationGate.WaitAsync(cancellationToken);
-            try
+            try { await StopCoreAsync(keepRuntime: false, cancellationToken); }
+            finally { _operationGate.Release(); }
+        }
+
+        private async Task StopCoreAsync(bool keepRuntime, CancellationToken token)
+        {
+            var process = _process;
+            var plan = _activePlan;
+            if (process != null)
             {
-                Process? process;
-                lock (_stateLock)
-                {
-                    process = _process;
-                    _stopRequested = true;
-                }
-
-                if (process == null)
-                {
-                    SetState(SingBoxRuntimeState.Stopped);
-                    return;
-                }
-
                 SetState(SingBoxRuntimeState.Stopping);
                 try
                 {
-                    TryKill(process);
-                    await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
+                    if (!process.HasExited) process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(token).WaitAsync(TimeSpan.FromSeconds(5), token);
                 }
                 catch (Exception ex)
                 {
-                    SetLastError($"停止 sing-box 时出现异常：{ex.Message}", null);
+                    SetLastError("停止 sing-box 失败：" + ex.Message, null);
+                    SetState(SingBoxRuntimeState.Failed);
+                    throw;
                 }
-                finally
-                {
-                    lock (_stateLock)
-                    {
-                        if (ReferenceEquals(_process, process)) _process = null;
-                    }
-                    process.Dispose();
-                    SetState(SingBoxRuntimeState.Stopped);
-                }
+                lock (_stateLock) { _process = null; _activePlan = null; }
+                process.Dispose();
             }
+            try { _systemProxy.Restore(); }
             finally
             {
-                _operationGate.Release();
+                if (!keepRuntime) DeleteRuntime(plan);
+                SetState(SingBoxRuntimeState.Stopped);
             }
+        }
+
+        public void PrepareForExit()
+        {
+            _shutdownRequested = true;
+            try { _systemProxy.Restore(); }
+            catch (Exception ex) { Debug.WriteLine("系统代理将在下次启动时恢复：" + ex.Message); }
+        }
+
+        private static void DeleteRuntime(LaunchPlan? plan)
+        {
+            if (plan == null) return;
+            try { File.Delete(plan.RuntimePath); } catch { }
         }
 
         public async Task StopForUpdateAsync()
@@ -231,11 +393,13 @@ namespace singC.Models
         public async Task<ConfigValidationResult> ValidateConfigAsync(
             string? configPath = null,
             string? configText = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            string? workingDirectory = null,
+            string? executablePath = null)
         {
-            string singBoxPath = AppSettings.Get(AppSettings.PathKey.SingBoxPathKey)?.Trim() ?? string.Empty;
+            string singBoxPath = executablePath ?? _getExecutable()?.Trim() ?? string.Empty;
             string targetPath = configPath?.Trim()
-                ?? AppSettings.Get(AppSettings.PathKey.ConfigPathKey)?.Trim()
+                ?? _getConfig()?.Trim()
                 ?? string.Empty;
 
             if (string.IsNullOrWhiteSpace(singBoxPath) || !File.Exists(singBoxPath))
@@ -282,7 +446,7 @@ namespace singC.Models
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(checkPath) ?? AppContext.BaseDirectory
+                    WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(checkPath) ?? AppContext.BaseDirectory
                 };
                 startInfo.ArgumentList.Add("check");
                 startInfo.ArgumentList.Add("-c");
@@ -333,35 +497,30 @@ namespace singC.Models
 
         private void OnProcessErrorDataReceived(object sender, DataReceivedEventArgs e)
         {
+            if (!ReferenceEquals(sender, _process)) return;
             if (!string.IsNullOrWhiteSpace(e.Data))
                 SetLastError(e.Data.Trim(), LastExitCode);
             ErrorDataReceived?.Invoke(sender, e);
         }
 
-        private void HandleProcessExited(Process process)
+        private async Task HandleProcessExitedAsync(Process process)
         {
-            int? exitCode = null;
-            try { exitCode = process.ExitCode; } catch { }
-
-            bool isCurrent;
-            bool requestedStop;
-            lock (_stateLock)
+            await _operationGate.WaitAsync();
+            try
             {
-                isCurrent = ReferenceEquals(_process, process);
-                requestedStop = _stopRequested;
-                if (isCurrent)
-                {
-                    _process = null;
-                    _lastExitCode = exitCode;
-                }
+                if (!ReferenceEquals(_process, process)) return;
+                int? exitCode = null;
+                try { exitCode = process.ExitCode; } catch { }
+                var plan = _activePlan;
+                lock (_stateLock) { _process = null; _activePlan = null; _lastExitCode = exitCode; }
+                try { _systemProxy.Restore(); }
+                catch (Exception ex) { SetLastError("内核已退出，系统代理恢复失败：" + ex.Message, exitCode); }
+                DeleteRuntime(plan);
+                if (string.IsNullOrWhiteSpace(LastError)) SetLastError($"sing-box 已退出，退出码：{exitCode}。", exitCode);
+                process.Dispose();
+                SetState(SingBoxRuntimeState.Failed);
             }
-
-            if (!isCurrent) return;
-            if (!requestedStop && exitCode is not null and not 0 && string.IsNullOrWhiteSpace(LastError))
-                SetLastError($"sing-box 已退出，退出码：{exitCode}。", exitCode);
-
-            SetState(requestedStop ? SingBoxRuntimeState.Stopped : SingBoxRuntimeState.Failed);
-            process.Dispose();
+            finally { _operationGate.Release(); }
         }
 
         private string BuildExitMessage()

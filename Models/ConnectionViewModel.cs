@@ -35,6 +35,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
     private readonly object _latestConnectionsLock = new();
     private bool _isStarting;
     private readonly SemaphoreSlim _serviceGate = new(1, 1);
+    private long _runGeneration;
     private const int DefaultRefreshIntervalSeconds = 1;
     private const int MaxReconnectAttempts = 10;
 
@@ -197,7 +198,12 @@ public class ConnectionViewModel : INotifyPropertyChanged
         await _serviceGate.WaitAsync();
         try
         {
-            if (SingBoxService.Instance.IsRunning) await StartAsync();
+            if (SingBoxService.Instance.IsRunning)
+            {
+                if (_wsService != null && _runGeneration != SingBoxService.Instance.RunGeneration)
+                    await StopAsync();
+                await StartAsync();
+            }
             else await StopAsync();
         }
         finally { _serviceGate.Release(); }
@@ -227,6 +233,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
             await Task.Delay(1000);
             if (!SingBoxService.Instance.IsRunning) return;
             Traffic.BeginSession();
+            _runGeneration = SingBoxService.Instance.RunGeneration;
             service = new ClashWebSocketService();
             service.AutoReconnect = AutoReconnect;
             service.OnConnectionsReceived += OnConnectionsReceived;

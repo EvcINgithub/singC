@@ -45,6 +45,32 @@
                     HorizontalAlignment="Center"
                     FontSize="16"/>
 
+            <Border Padding="14" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Spacing="10">
+                    <RadioButtons x:Name="ModeSelector" Header="运行模式" MaxColumns="3"
+                                  SelectionChanged="ModeSelector_SelectionChanged">
+                        <x:String>跟随配置</x:String>
+                        <x:String>TUN</x:String>
+                        <x:String>系统代理</x:String>
+                    </RadioButtons>
+                    <Grid x:Name="ProxyPortPanel" Visibility="Collapsed" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <NumberBox x:Name="ProxyPortBox" Header="本地代理端口" Value="7890" Minimum="1" Maximum="65535"
+                                   SpinButtonPlacementMode="Compact"/>
+                        <Button x:Name="ApplyProxyPortButton" Grid.Column="1" Content="应用端口" VerticalAlignment="Bottom"
+                                Click="ApplyProxyPortButton_Click"/>
+                    </Grid>
+                    <TextBlock x:Name="ModeHintText" TextWrapping="Wrap" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="运行中切换会重启 sing-box，连接会短暂中断。" TextWrapping="Wrap" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="ModeOperationText" TextWrapping="Wrap" FontSize="12"/>
+                </StackPanel>
+            </Border>
+
             <TextBlock x:Name="StateTextBlock"
                        HorizontalAlignment="Center"
                        Style="{StaticResource CaptionTextBlockStyle}"/>

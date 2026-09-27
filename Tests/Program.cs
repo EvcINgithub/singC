@@ -3,6 +3,9 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using singC.Updates;
 
+if (args.Length == 3 && args[0] is "check" or "run" && args[1] == "-c")
+    return await ProxyModeTests.RunFixtureAsync(args);
+
 var root = Path.Combine(Path.GetTempPath(), "singC-update-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 int passed = 0;
@@ -24,6 +27,7 @@ void Fixture(string dir, string version, params string[] extras)
 try
 {
     TrafficStatisticsTests.Run(Dir("traffic"), Check);
+    await ProxyModeTests.RunAsync(Dir("modes"), Check);
     await NetworkDiagnosticsTests.RunAsync(Check);
     string Json(string tag = "v1.0.2", bool prerelease = false, string owner = "EvcINgithub/singC") => JsonSerializer.Serialize(new
     {
@@ -87,6 +91,11 @@ try
     }
     Console.WriteLine($"{passed} checks passed.");
     return 0;
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine("FAIL " + ex);
+    return 1;
 }
 finally
 {

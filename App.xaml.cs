@@ -90,6 +90,7 @@ namespace singC
 
         private async void OnMainWindowClosed(object sender, WindowEventArgs args)
         {
+            SingBoxService.Instance.PrepareForExit();
             // Flush before the window dispatcher shuts down; the close event cannot be awaited.
             ConnectionViewModel.Instance.Traffic.Save();
             // 应用关闭时，停止 sing-box 进程

@@ -26,6 +26,7 @@ namespace singC.Helpers
         public const string LastPageKey = "LastPage";
         public const string StartWithWindowsKey = "StartWithWindows";
         public const string TrafficServiceUrlKey = "TrafficServiceUrl";
+        public const string ProxyModeKey = "ProxyMode";
 
         public static bool IsServiceUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
@@ -65,8 +66,15 @@ namespace singC.Helpers
         public static void Set(string key, string value)
         {
             LoadIfNeeded();
+            bool existed = _settings!.TryGetValue(key, out var previous);
             _settings![key] = value;
-            Save();
+            try { Save(); }
+            catch
+            {
+                if (existed) _settings[key] = previous!;
+                else _settings.Remove(key);
+                throw;
+            }
         }
 
         public static void Set(PathKey key, string value)
@@ -135,7 +143,13 @@ namespace singC.Helpers
         {
             if (_settings == null) return;
             string json = JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(SettingsFilePath, json);
+            string temporary = SettingsFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(temporary, json);
+                File.Move(temporary, SettingsFilePath, overwrite: true);
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
 
         public static string GetPathKey(PathKey key)

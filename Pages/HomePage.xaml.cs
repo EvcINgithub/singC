@@ -17,6 +17,7 @@ namespace singC.Pages
         private readonly SingBoxService _singBox = SingBoxService.Instance;
         private bool _isLoadingConfigPaths;
         private bool _isOperating;
+        private bool _syncingMode = true;
         public ObservableCollection<string> ConfigPaths { get; } = new();
 
         public HomePage()
@@ -33,6 +34,59 @@ namespace singC.Pages
             LoadConfigPaths();
             ApplySavedBackground();
             OnSingBoxStateChanged();
+        }
+
+        private async void ModeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_syncingMode || _isOperating || ModeSelector.SelectedIndex < 0) return;
+            await ApplyModeAsync((ProxyMode)ModeSelector.SelectedIndex);
+        }
+
+        private async void ApplyProxyPortButton_Click(object sender, RoutedEventArgs e)
+            => await ApplyModeAsync(ProxyMode.SystemProxy);
+
+        private async System.Threading.Tasks.Task ApplyModeAsync(ProxyMode mode)
+        {
+            if (_isOperating || _singBox.IsBusy) { RefreshModeControls(); return; }
+            if (!double.IsFinite(ProxyPortBox.Value) || ProxyPortBox.Value % 1 != 0 || ProxyPortBox.Value is < 1 or > 65535)
+            {
+                ModeOperationText.Text = "端口必须是 1 到 65535 之间的整数。";
+                RefreshModeControls();
+                return;
+            }
+            _isOperating = true;
+            bool wasRunning = _singBox.IsRunning;
+            ModeOperationText.Text = wasRunning ? "正在校验并切换模式…" : "正在保存模式…";
+            OnSingBoxStateChanged();
+            try
+            {
+                await _singBox.SwitchModeAsync(mode, (int)ProxyPortBox.Value);
+                ModeOperationText.Text = wasRunning
+                    ? $"已切换至{ProxyModeConfig.DisplayName(mode)}。"
+                    : $"下次启动将使用{ProxyModeConfig.DisplayName(mode)}。";
+            }
+            catch (Exception ex) { ModeOperationText.Text = ex.Message; }
+            finally
+            {
+                _isOperating = false;
+                RefreshModeControls();
+                OnSingBoxStateChanged();
+            }
+        }
+
+        private void RefreshModeControls()
+        {
+            _syncingMode = true;
+            ModeSelector.SelectedIndex = (int)_singBox.PreferredMode;
+            ProxyPortBox.Value = _singBox.ProxyPort;
+            ProxyPortPanel.Visibility = _singBox.PreferredMode == ProxyMode.SystemProxy ? Visibility.Visible : Visibility.Collapsed;
+            ModeHintText.Text = _singBox.PreferredMode switch
+            {
+                ProxyMode.Tun => "通过虚拟网卡接管流量，需要管理员权限；运行时关闭系统代理，停止后恢复。",
+                ProxyMode.SystemProxy => $"HTTP/SOCKS 入口：127.0.0.1:{_singBox.ProxyPort}。自动设置 Windows 系统代理。",
+                _ => "保留原配置的入站方式，也可直接选择 TUN 或系统代理。"
+            };
+            _syncingMode = false;
         }
 
         protected override void OnNavigatedFrom(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
@@ -167,6 +221,10 @@ namespace singC.Pages
                 }
                 ToggleServiceButton.IsEnabled = !_isOperating && !_singBox.IsBusy;
                 ConfigComboBox.IsEnabled = !_isOperating && !_singBox.IsBusy && !running;
+                ModeSelector.IsEnabled = !_isOperating && !_singBox.IsBusy;
+                ProxyPortBox.IsEnabled = !_isOperating && !_singBox.IsBusy;
+                ApplyProxyPortButton.IsEnabled = !_isOperating && !_singBox.IsBusy;
+                if (!_isOperating) RefreshModeControls();
             });
         }
     }

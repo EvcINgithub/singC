@@ -15,6 +15,36 @@ Publish from a fresh checkout into a new output directory. Package the output
 before running the application. Do not package a directory used to run the app,
 which may contain local runtime data.
 
+## Quick mode switching
+
+The Home page offers **跟随配置**, **TUN**, and **系统代理**. The default follows
+the original configuration. Select a mode while stopped to use it on the next
+start, or switch while running to validate the new configuration and restart
+sing-box automatically. Connections are briefly interrupted. Startup or settings
+save failures restore the previous runtime configuration. TUN requires running
+singC as administrator; insufficient privileges are detected before stopping the
+current process.
+
+System proxy mode replaces the TUN inbound with a loopback HTTP/SOCKS mixed
+listener, retaining the TUN tag for inbound-based rules. Its default port is
+7890 and can be changed with **应用端口**. If a port is occupied, choose another
+port. Configurations with multiple TUN inbounds require manual consolidation.
+Windows HTTP/HTTPS proxy settings are enabled only after the listener is ready.
+TUN mode temporarily disables Windows manual/PAC/auto-detect proxying. Stopping,
+switching or a core exit restores the prior Windows settings; settings changed
+by another application are preserved. Only applications that honor Windows
+system proxy settings use system proxy mode automatically.
+
+The source JSON is not modified. Temporary configurations live under
+`%LOCALAPPDATA%/singC/runtime` and use the source configuration's working directory
+for relative paths. Mode and port are remembered locally. An exclusive recovery
+journal at `%LOCALAPPDATA%/singC/system-proxy-backup.json` prevents concurrent
+ownership and restores abandoned settings on the next launch after a crash.
+When adding a missing TUN inbound, singC uses the current
+[TUN configuration fields](https://sing-box.sagernet.org/configuration/inbound/tun/)
+and checks the result using the configured sing-box executable. See also the
+[mixed inbound documentation](https://sing-box.sagernet.org/configuration/inbound/mixed/).
+
 ## Local traffic statistics
 
 Open **流量统计** to view upload/download speeds, usage for the current sing-box
