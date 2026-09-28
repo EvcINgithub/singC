@@ -10,8 +10,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using WinRT.Interop;
@@ -30,11 +28,6 @@ namespace singC.ViewModels
         private bool _isLoadingConfig;
         private bool _hasUnsavedChanges;
 
-        private static readonly JsonSerializerOptions IndentedOptions = new()
-        {
-            WriteIndented = true,
-            TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
-        };
         public string FinalOutbound
         {
             get => _finalOutbound;
@@ -44,7 +37,7 @@ namespace singC.ViewModels
                 _finalOutbound = value;
                 OnPropertyChanged();
                 MarkConfigDirty();
-                UpdateRouteJson();
+
             }
         }
 
@@ -58,7 +51,7 @@ namespace singC.ViewModels
                 _autoDetectInterface = value;
                 OnPropertyChanged();
                 MarkConfigDirty();
-                UpdateRouteJson();
+
             }
         }
 
@@ -72,7 +65,7 @@ namespace singC.ViewModels
                 _defaultDomainResolver = value;
                 OnPropertyChanged();
                 MarkConfigDirty();
-                UpdateRouteJson();
+
             }
         }
 
@@ -193,54 +186,34 @@ namespace singC.ViewModels
             get => _statusMessage;
             set { _statusMessage = value; OnPropertyChanged(); }
         }
-        private static bool IsSystemRule(JsonObject ruleObj)
-        {
-            // 空对象不参与判断
-            if (ruleObj == null) return false;
-
-            // 规则1: { "action": "sniff" }   (仅此一个字段)
-            if (ruleObj.Count == 1 && ruleObj["action"]?.GetValue<string>() == "sniff")
-                return true;
-
-            // 规则2: { "protocol": "dns", "action": "hijack-dns" } 
-            if (ruleObj.Count == 2 &&
-                ruleObj["protocol"]?.GetValue<string>() == "dns" &&
-                ruleObj["action"]?.GetValue<string>() == "hijack-dns")
-                return true;
-
-            // 规则3: { "network": "udp", "port": 443, "action": "reject" }
-            if (ruleObj.Count == 3 &&
-                ruleObj["network"]?.GetValue<string>() == "udp" &&
-                ruleObj["port"]?.GetValue<int>() == 443 &&
-                ruleObj["action"]?.GetValue<string>() == "reject")
-                return true;
-
-            // 规则4: { "ip_is_private": true, "outbound": "direct" }
-            if (ruleObj.Count == 2 &&
-                ruleObj["ip_is_private"]?.GetValue<bool>() == true &&
-                ruleObj["outbound"]?.GetValue<string>() == "direct")
-                return true;
-
-            return false;
-        }
-
-        // ========== 模式切换属性 ==========
         private bool _isAdvancedMode;
         public bool IsAdvancedMode
         {
             get => _isAdvancedMode;
             set
             {
+                if (_isAdvancedMode == value) return;
+                if (value)
+                {
+                    try
+                    {
+                        _configText = GetConfigTextForSave();
+                        OnPropertyChanged(nameof(ConfigText));
+                    }
+                    catch (Exception ex) { StatusMessage = ex.Message; OnPropertyChanged(); return; }
+                }
+                else if (!ParseConfigToForm()) { OnPropertyChanged(); return; }
                 _isAdvancedMode = value;
                 OnPropertyChanged();
-                if (value) // 切换到高级模式：把表单内容写回 JSON 文本
-                    ConfigText = ConfigJsonObject?.ToJsonString(IndentedOptions) ?? "{}";
-                else        // 切换到简易模式：重新解析 JSON 到表单
-                    ParseConfigToForm();
+                OnPropertyChanged(nameof(CanEditRules));
             }
-        }        
-        // 解析后的 JSON 对象（后台数据源）
-        private JsonObject? ConfigJsonObject { get; set; }
+        }
+        private RouteConfigDocument? _routeDocument;
+        public bool CanEditRules => _routeDocument != null && !IsAdvancedMode;
+        public bool NoRules => RouteRules.Count == 0;
+        public string RuleCountText => $"路由规则 · {RouteRules.Count} 条";
+        public ObservableCollection<string> OutboundTags { get; } = new();
+        public ObservableCollection<string> DnsTags { get; } = new();
 
         // ========== 命令 ==========
         public ICommand BrowseSingBoxCommand { get; }
@@ -353,6 +326,9 @@ namespace singC.ViewModels
             else
             {
                 ConfigText = string.Empty;
+                _routeDocument = null;
+                RouteRules.Clear();
+                OnPropertyChanged(nameof(CanEditRules));
                 StatusMessage = "已移除配置。";
             }
         }
@@ -396,7 +372,13 @@ namespace singC.ViewModels
                 _isLoadingConfig = true;
                 ConfigText = await File.ReadAllTextAsync(ConfigPath);
                 // 加载后自动解析到简易表单
-                ParseConfigToForm();
+                if (!ParseConfigToForm())
+                {
+                    _isAdvancedMode = true;
+                    OnPropertyChanged(nameof(IsAdvancedMode));
+                    OnPropertyChanged(nameof(CanEditRules));
+                    return;
+                }
                 HasUnsavedChanges = false;
                 StatusMessage = SingBoxService.Instance.IsRunning
                     ? "配置文件已加载，当前 sing-box 正在运行，重启后生效。"
@@ -414,7 +396,9 @@ namespace singC.ViewModels
 
         public async Task CheckConfigAsync()
         {
-            string configText = GetConfigTextForSave();
+            string configText;
+            try { configText = GetConfigTextForSave(); }
+            catch (Exception ex) { StatusMessage = "无法检查：" + ex.Message; return; }
             var result = await SingBoxService.Instance.ValidateConfigAsync(ConfigPath, configText);
             StatusMessage = result.ToUserMessage();
         }
@@ -444,7 +428,9 @@ namespace singC.ViewModels
                 }
             }
 
-            string configText = GetConfigTextForSave();
+            string configText;
+            try { configText = GetConfigTextForSave(); }
+            catch (Exception ex) { StatusMessage = "无法保存：" + ex.Message; return; }
             var validation = await SingBoxService.Instance.ValidateConfigAsync(ConfigPath, configText);
             if (!validation.IsValid)
             {
@@ -484,14 +470,12 @@ namespace singC.ViewModels
 
         private string GetConfigTextForSave()
         {
-            if (!IsAdvancedMode && ConfigJsonObject != null)
-            {
-                UpdateRouteJson();
-                return ConfigJsonObject.ToJsonString(IndentedOptions);
-            }
-
-            return ConfigText;
+            if (IsAdvancedMode) return ConfigText;
+            if (_routeDocument == null) throw new InvalidDataException("请先加载有效配置，或切换到高级 JSON 修正配置。");
+            return _routeDocument.Build(RouteRules, FinalOutbound, AutoDetectInterface, DefaultDomainResolver)
+                .ToJsonString(RouteConfigDocument.JsonOptions);
         }
+
 
         private void CreateConfigBackup()
         {
@@ -589,242 +573,104 @@ namespace singC.ViewModels
             }
         }
 
-        // ========== 简易模式核心方法 ==========
         private void AddRule()
         {
-            RouteRules.Add(new RouteRule());
-            MarkConfigDirty();
-            UpdateRouteJson();
+            if (!CanEditRules) { StatusMessage = "请先加载有效配置，并切换到表单模式。"; return; }
+            var rule = new RouteRule();
+            rule.AddCondition();
+            RouteRules.Add(rule);
+            StatusMessage = "已添加规则，请选择匹配类型并填写内容和出口，保存后生效。";
         }
 
         private void RemoveRule(RouteRule? rule)
         {
-            if (rule != null)
-                RouteRules.Remove(rule);
-            MarkConfigDirty();
-            UpdateRouteJson();
+            if (rule != null && RouteRules.Remove(rule)) StatusMessage = "已删除规则，保存后生效。";
         }
 
         private void MoveRuleUp(RouteRule? rule)
         {
-            if (rule == null) return;
-            int index = RouteRules.IndexOf(rule);
-            if (index > 0)
-            {
-                RouteRules.Move(index, index - 1);
-                MarkConfigDirty();
-                UpdateRouteJson();
-            }
+            int index = rule == null ? -1 : RouteRules.IndexOf(rule);
+            if (index > 0) RouteRules.Move(index, index - 1);
         }
 
         private void MoveRuleDown(RouteRule? rule)
         {
-            if (rule == null) return;
-            int index = RouteRules.IndexOf(rule);
-            if (index < RouteRules.Count - 1)
-            {
-                RouteRules.Move(index, index + 1);
-                MarkConfigDirty();
-                UpdateRouteJson();
-            }
+            int index = rule == null ? -1 : RouteRules.IndexOf(rule);
+            if (index >= 0 && index < RouteRules.Count - 1) RouteRules.Move(index, index + 1);
         }
 
+        private readonly HashSet<RouteRule> _subscribedRules = new();
         private void RouteRules_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
-            if (e.OldItems != null)
+            foreach (var removed in _subscribedRules.Except(RouteRules).ToArray())
             {
-                foreach (RouteRule rule in e.OldItems)
-                    rule.PropertyChanged -= RouteRule_PropertyChanged;
+                removed.PropertyChanged -= RouteRule_PropertyChanged;
+                _subscribedRules.Remove(removed);
             }
-
-            if (e.NewItems != null)
+            foreach (var added in RouteRules.Where(r => !_subscribedRules.Contains(r)))
             {
-                foreach (RouteRule rule in e.NewItems)
-                    rule.PropertyChanged += RouteRule_PropertyChanged;
+                added.PropertyChanged += RouteRule_PropertyChanged;
+                _subscribedRules.Add(added);
             }
-
+            for (int i = 0; i < RouteRules.Count; i++) RouteRules[i].Ordinal = i + 1;
+            OnPropertyChanged(nameof(NoRules));
+            OnPropertyChanged(nameof(RuleCountText));
             MarkConfigDirty();
         }
 
         private void RouteRule_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            MarkConfigDirty();
+            if (e.PropertyName is not (nameof(RouteRule.IsExpanded) or nameof(RouteRule.Title) or nameof(RouteRule.Summary)))
+                MarkConfigDirty();
         }
 
         private void MarkConfigDirty()
         {
-            if (!_isLoadingConfig)
-                HasUnsavedChanges = true;
+            if (!_isLoadingConfig) HasUnsavedChanges = true;
         }
-        private void ParseConfigToForm()
+
+        private bool ParseConfigToForm()
         {
+            bool wasLoading = _isLoadingConfig;
+            _isLoadingConfig = true;
             try
             {
-                if (string.IsNullOrWhiteSpace(ConfigText)) return;
-                ConfigJsonObject = JsonNode.Parse(ConfigText)?.AsObject();
-                if (ConfigJsonObject == null) return;
-
-                if (ConfigJsonObject != null)
-                {
-                    ParseRouteToForm(); // 替代之前的端口/DNS 解析
-                }
+                var document = new RouteConfigDocument(ConfigText);
+                _routeDocument = document;
+                RouteRules.Clear();
+                foreach (var rule in document.Rules) RouteRules.Add(rule);
+                _finalOutbound = document.FinalOutbound;
+                _autoDetectInterface = document.AutoDetectInterface;
+                _defaultDomainResolver = document.DefaultDomainResolver;
+                OutboundTags.Clear();
+                foreach (var tag in document.OutboundTags) OutboundTags.Add(tag);
+                DnsTags.Clear();
+                foreach (var tag in document.DnsTags) DnsTags.Add(tag);
+                OnPropertyChanged(nameof(FinalOutbound));
+                OnPropertyChanged(nameof(AutoDetectInterface));
+                OnPropertyChanged(nameof(DefaultDomainResolver));
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
-                // 解析失败保持表单不变
+                _routeDocument = null;
+                RouteRules.Clear();
+                StatusMessage = "配置解析失败，请在高级 JSON 中修正：" + ex.Message;
+                return false;
+            }
+            finally
+            {
+                _isLoadingConfig = wasLoading;
+                OnPropertyChanged(nameof(CanEditRules));
             }
         }
 
-        private void ApplySimpleSettings()
-        {
-            _ = SaveConfigAsync();
-        }
+        private void ApplySimpleSettings() => _ = SaveConfigAsync();
 
-        // ========== INotifyPropertyChanged ==========
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-        private void ParseRouteToForm()
-        {
-            if (ConfigJsonObject == null) return;
-            var routeObj = ConfigJsonObject["route"]?.AsObject();
-            if (routeObj == null) return;
-
-            RouteRules.Clear();
-
-            var rulesArray = routeObj["rules"]?.AsArray();
-            if (rulesArray != null)
-            {
-                foreach (var ruleNode in rulesArray)
-                {
-                    var ruleObj = ruleNode?.AsObject();
-                    if (ruleObj == null) continue;
-
-                    // 跳过系统保留规则
-                    if (IsSystemRule(ruleObj)) continue;
-
-                    var rule = new RouteRule
-                    {
-                        Action = ruleObj["action"]?.GetValue<string>() ?? "",
-                        Protocol = ruleObj["protocol"]?.GetValue<string>() ?? "",
-                        Network = ruleObj["network"]?.GetValue<string>() ?? "",
-                        Port = (int?)ruleObj["port"]?.GetValue<int>(),
-                        IpIsPrivate = ruleObj["ip_is_private"]?.GetValue<bool>() ?? false,
-                        Outbound = ruleObj["outbound"]?.GetValue<string>() ?? "",
-                        RuleSet = ReadStringArray(ruleObj["rule_set"]),
-                        DomainSuffix = ReadStringArray(ruleObj["domain_suffix"]),
-                        IpCidr = ReadStringArray(ruleObj["ip_cidr"]),
-                        Domain = ReadStringArray(ruleObj["domain"])
-                    };
-                    RouteRules.Add(rule);
-                }
-            }
-
-            // 全局选项依然读取
-            FinalOutbound = routeObj["final"]?.GetValue<string>() ?? "remote";
-            AutoDetectInterface = routeObj["auto_detect_interface"]?.GetValue<bool>() ?? true;
-            DefaultDomainResolver = routeObj["default_domain_resolver"]?.GetValue<string>() ?? "local";
-        }
-
-        private static string ReadStringArray(JsonNode? node)
-        {
-            var array = node?.AsArray();
-            if (array == null) return string.Empty;
-
-            return string.Join(",", array.Select(item => item?.GetValue<string>() ?? string.Empty));
-        }
-
-        private void UpdateRouteJson()
-        {
-            if (ConfigJsonObject == null) return;
-
-            var routeObj = ConfigJsonObject["route"]?.AsObject() ?? new JsonObject();
-            ConfigJsonObject["route"] = routeObj;
-
-            var newRulesArray = new JsonArray();
-
-            // 1. 保留原来的系统规则（从原始 route.rules 中提取）
-            var originalRules = routeObj["rules"]?.AsArray();
-            if (originalRules != null)
-            {
-                foreach (var ruleNode in originalRules)
-                {
-                    var ruleObj = ruleNode?.AsObject();
-                    if (ruleObj != null && IsSystemRule(ruleObj))
-                    {
-                        // 直接复制原节点（深度克隆以保持独立）
-                        newRulesArray.Add(JsonNode.Parse(ruleObj.ToJsonString()));
-                    }
-                }
-            }
-
-            // 2. 追加用户自定义规则
-            foreach (var rule in RouteRules)
-            {
-                var ruleObj = new JsonObject();
-                if (!string.IsNullOrWhiteSpace(rule.Action)) ruleObj["action"] = rule.Action;
-                if (!string.IsNullOrWhiteSpace(rule.Protocol)) ruleObj["protocol"] = rule.Protocol;
-                if (!string.IsNullOrWhiteSpace(rule.Network)) ruleObj["network"] = rule.Network;
-                if (rule.Port.HasValue && rule.Port.Value == 0) ruleObj["port"] = rule.Port.Value;
-                if (rule.IpIsPrivate) ruleObj["ip_is_private"] = true;
-                if (!string.IsNullOrWhiteSpace(rule.Outbound)) ruleObj["outbound"] = rule.Outbound;
-                // ip_cidr
-                if (!string.IsNullOrWhiteSpace(rule.IpCidr))
-                {
-                    var ips = rule.IpCidr.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                         .Select(s => s.Trim())
-                                         .Where(s => !string.IsNullOrEmpty(s));
-                    var ipArray = new JsonArray();
-                    foreach (var ip in ips) ipArray.Add(ip);
-                    ruleObj["ip_cidr"] = ipArray;
-                }
-
-                // domain (精确域名)
-                if (!string.IsNullOrWhiteSpace(rule.Domain))
-                {
-                    var domains = rule.Domain.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                             .Select(s => s.Trim())
-                                             .Where(s => !string.IsNullOrEmpty(s));
-                    var domainArray = new JsonArray();
-                    foreach (var d in domains) domainArray.Add(d);
-                    ruleObj["domain"] = domainArray;
-                }
-                // rule_set 序列化
-                if (!string.IsNullOrWhiteSpace(rule.RuleSet))
-                {
-                    var sets = rule.RuleSet.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                           .Select(s => s.Trim())
-                                           .Where(s => !string.IsNullOrEmpty(s));
-                    var setArray = new JsonArray();
-                    foreach (var s in sets) setArray.Add(s);
-                    ruleObj["rule_set"] = setArray;
-                }
-
-                // domain_suffix 序列化
-                if (!string.IsNullOrWhiteSpace(rule.DomainSuffix))
-                {
-                    var domains = rule.DomainSuffix.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                                   .Select(d => d.Trim())
-                                                   .Where(d => !string.IsNullOrEmpty(d));
-                    var domainArray = new JsonArray();
-                    foreach (var d in domains) domainArray.Add(d);
-                    ruleObj["domain_suffix"] = domainArray;
-                }
-
-                newRulesArray.Add(ruleObj);
-            }
-
-            routeObj["rules"] = newRulesArray;
-
-            // 全局选项
-            routeObj["final"] = FinalOutbound ?? "remote";
-            routeObj["auto_detect_interface"] = AutoDetectInterface;
-            routeObj["default_domain_resolver"] = DefaultDomainResolver ?? "local";
-
-            if (IsAdvancedMode)
-                ConfigText = ConfigJsonObject.ToJsonString(IndentedOptions);
-        }
     }
 
     // ========== 命令辅助类 ==========

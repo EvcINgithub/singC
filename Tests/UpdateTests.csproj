@@ -8,6 +8,8 @@
   <ItemGroup><Compile Include="../UpdateCore/*.cs" Link="UpdateCore/%(Filename)%(Extension)"/></ItemGroup>
   <ItemGroup><Compile Remove="FixtureApp/**"/></ItemGroup>
   <ItemGroup>
+    <Compile Include="../Models/RouteModel.cs" Link="Models/RouteModel.cs"/>
+    <Compile Include="../Models/RouteConfigDocument.cs" Link="Models/RouteConfigDocument.cs"/>
     <Compile Include="../Models/TrafficStatistics.cs" Link="Models/TrafficStatistics.cs"/>
     <Compile Include="../Models/ProxyModeConfig.cs" Link="Models/ProxyModeConfig.cs"/>
     <Compile Include="../Models/SingBoxService.cs" Link="Models/SingBoxService.cs"/>

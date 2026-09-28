@@ -195,7 +195,7 @@
                             </Grid.RowDefinitions>
                             <StackPanel Grid.Row="0" Spacing="2">
                                 <TextBlock Text="Sing-Box 配置" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                                <TextBlock Text="简易模式编辑常用路由项，高级模式直接编辑 JSON"
+                                <TextBlock Text="选择匹配类型编辑规则，复杂条件可切换高级 JSON"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Row="1"
@@ -204,7 +204,7 @@
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Center">
                                 <TextBlock Text="有未保存修改"
-                                           Foreground="#C42B1C"
+                                           Foreground="{ThemeResource SystemFillColorCautionBrush}"
                                            VerticalAlignment="Center"
                                            Margin="0,0,4,0"
                                            Visibility="{x:Bind ViewModel.HasUnsavedChanges, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -215,7 +215,7 @@
                                 <StackPanel Orientation="Horizontal"
                                             Spacing="6"
                                             VerticalAlignment="Center">
-                                    <TextBlock Text="高级模式" VerticalAlignment="Center"/>
+                                    <TextBlock Text="高级 JSON" VerticalAlignment="Center"/>
                                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsAdvancedMode, Mode=TwoWay}"
                                                   VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -226,184 +226,116 @@
                             </StackPanel>
                         </Grid>
 
-            <ScrollViewer Grid.Row="1"
-                          HorizontalScrollBarVisibility="Auto"
-                          Visibility="{x:Bind ViewModel.IsAdvancedMode, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Reverse}">
-                <StackPanel Spacing="14">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1.2*"/>
-                            <ColumnDefinition Width="1.2*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <ComboBox Header="Final 出口"
-                                  SelectedValue="{x:Bind ViewModel.FinalOutbound, Mode=TwoWay}"
-                                  HorizontalAlignment="Stretch">
-                            <ComboBoxItem Content="remote"/>
-                            <ComboBoxItem Content="direct"/>
-                            <ComboBoxItem Content="bypass"/>
-                        </ComboBox>
-
-                        <ComboBox Grid.Column="1"
-                                  Header="DNS 解析器"
-                                  SelectedValue="{x:Bind ViewModel.DefaultDomainResolver, Mode=TwoWay}"
-                                  HorizontalAlignment="Stretch">
-                            <ComboBoxItem Content="local"/>
-                            <ComboBoxItem Content="remote"/>
-                            <ComboBoxItem Content="prefer-local"/>
-                        </ComboBox>
-
-                        <ToggleSwitch Grid.Column="2"
-                                      Header="自动检测接口"
-                                      IsOn="{x:Bind ViewModel.AutoDetectInterface, Mode=TwoWay}"/>
-                    </Grid>
-
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="路由规则"
-                                   Style="{StaticResource SubtitleTextBlockStyle}"
-                                   VerticalAlignment="Center"/>
-                        <Button Grid.Column="1"
-                                Command="{x:Bind ViewModel.AddRuleCommand}"
-                                ToolTipService.ToolTip="添加路由规则">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xE710;" FontSize="13"/>
-                                <TextBlock Text="添加规则"/>
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-
-                    <ListView ItemsSource="{x:Bind ViewModel.RouteRules}"
-                              SelectionMode="None"
-                              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                              BorderThickness="1">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="Padding" Value="0"/>
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:RouteRule">
-                                <Border BorderThickness="0,0,0,1"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        Padding="12">
-                                    <Grid RowSpacing="8">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                        </Grid.RowDefinitions>
-
-                                        <Grid ColumnSpacing="8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="150"/>
-                                                <ColumnDefinition Width="150"/>
-                                                <ColumnDefinition Width="150"/>
-                                                <ColumnDefinition Width="120"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <ComboBox Header="动作" SelectedValue="{x:Bind Action, Mode=TwoWay}">
-                                                <ComboBoxItem Content="sniff"/>
-                                                <ComboBoxItem Content="hijack-dns"/>
-                                                <ComboBoxItem Content="reject"/>
-                                                <ComboBoxItem Content="route"/>
-                                            </ComboBox>
-
-                                            <ComboBox Grid.Column="1" Header="协议" SelectedValue="{x:Bind Protocol, Mode=TwoWay}">
-                                                <ComboBoxItem Content=""/>
-                                                <ComboBoxItem Content="dns"/>
-                                                <ComboBoxItem Content="http"/>
-                                                <ComboBoxItem Content="tls"/>
-                                                <ComboBoxItem Content="quic"/>
-                                            </ComboBox>
-
-                                            <ComboBox Grid.Column="2" Header="网络" SelectedValue="{x:Bind Network, Mode=TwoWay}">
-                                                <ComboBoxItem Content=""/>
-                                                <ComboBoxItem Content="tcp"/>
-                                                <ComboBoxItem Content="udp"/>
-                                            </ComboBox>
-
-                                            <NumberBox Grid.Column="3"
-                                                       Header="端口"
-                                                       Value="{x:Bind PortDouble, Mode=TwoWay}"
-                                                       Minimum="0"
-                                                       Maximum="65535"
-                                                       SpinButtonPlacementMode="Compact"/>
-
-                                            <TextBox Grid.Column="4"
-                                                     Header="出口"
-                                                     Text="{x:Bind Outbound, Mode=TwoWay}"
-                                                     PlaceholderText="direct / remote"/>
-
-                                            <Button Grid.Column="5"
-                                                    Command="{Binding ElementName=ThisPage, Path=ViewModel.MoveRuleUpCommand}"
-                                                    CommandParameter="{x:Bind}"
-                                                    ToolTipService.ToolTip="上移">
-                                                <FontIcon Glyph="&#xE70E;" FontSize="12"/>
-                                            </Button>
-                                            <Button Grid.Column="6"
-                                                    Command="{Binding ElementName=ThisPage, Path=ViewModel.MoveRuleDownCommand}"
-                                                    CommandParameter="{x:Bind}"
-                                                    ToolTipService.ToolTip="下移">
-                                                <FontIcon Glyph="&#xE70D;" FontSize="12"/>
-                                            </Button>
-                                            <Button Grid.Column="7"
-                                                    Command="{Binding ElementName=ThisPage, Path=ViewModel.RemoveRuleCommand}"
-                                                    CommandParameter="{x:Bind}"
-                                                    ToolTipService.ToolTip="删除">
-                                                <FontIcon Glyph="&#xE74D;" FontSize="12"/>
-                                            </Button>
-                                        </Grid>
-
-                                        <Grid Grid.Row="1" ColumnSpacing="8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox Text="{x:Bind RuleSet, Mode=TwoWay}"
-                                                     Header="规则集"
-                                                     PlaceholderText="geosite-cn,geoip-cn"/>
-                                            <TextBox Grid.Column="1"
-                                                     Text="{x:Bind DomainSuffix, Mode=TwoWay}"
-                                                     Header="域名后缀"
-                                                     PlaceholderText="cn,google.com"/>
-                                        </Grid>
-
-                                        <Grid Grid.Row="2" ColumnSpacing="8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox Text="{x:Bind IpCidr, Mode=TwoWay}"
-                                                     Header="IP/CIDR"
-                                                     PlaceholderText="1.1.1.1, 10.0.0.0/8"/>
-                                            <TextBox Grid.Column="1"
-                                                     Text="{x:Bind Domain, Mode=TwoWay}"
-                                                     Header="精确域名"
-                                                     PlaceholderText="google.com, youtube.com"/>
-                                            <CheckBox Grid.Column="2"
-                                                      Content="本地 IP"
-                                                      IsChecked="{x:Bind IpIsPrivate, Mode=TwoWay}"
-                                                      VerticalAlignment="Bottom"
-                                                      Margin="0,0,0,4"/>
-                                        </Grid>
+            <StackPanel Grid.Row="1" Spacing="14"
+                        Visibility="{x:Bind ViewModel.IsAdvancedMode, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Reverse}">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ComboBox Header="默认出口" ItemsSource="{x:Bind ViewModel.OutboundTags}" IsEditable="True"
+                              IsEnabled="{x:Bind ViewModel.CanEditRules, Mode=OneWay}"
+                              Text="{x:Bind ViewModel.FinalOutbound, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                              PlaceholderText="留空使用内核默认值"/>
+                    <ComboBox Grid.Column="1" Header="默认 DNS 解析器" ItemsSource="{x:Bind ViewModel.DnsTags}" IsEditable="True"
+                              IsEnabled="{x:Bind ViewModel.CanEditRules, Mode=OneWay}"
+                              Text="{x:Bind ViewModel.DefaultDomainResolver, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                              PlaceholderText="留空使用内核默认值"/>
+                    <ToggleSwitch Grid.Column="2" Header="自动检测接口"
+                                  IsEnabled="{x:Bind ViewModel.CanEditRules, Mode=OneWay}"
+                                  IsOn="{x:Bind ViewModel.AutoDetectInterface, Mode=TwoWay}"/>
+                </Grid>
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="{x:Bind ViewModel.RuleCountText, Mode=OneWay}" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="+ 添加规则" Click="AddRule_Click"
+                            IsEnabled="{x:Bind ViewModel.CanEditRules, Mode=OneWay}"/>
+                </Grid>
+                <TextBlock Text="按从上到下的顺序匹配。展开规则后选择匹配类型；新增、删除和排序均在保存配置后生效。"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                <TextBlock Text="暂无路由规则，点击“添加规则”开始。"
+                           Visibility="{x:Bind ViewModel.NoRules, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <ListView x:Name="RulesList" ItemsSource="{x:Bind ViewModel.RouteRules}" SelectionMode="None"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollMode="Disabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="0,0,0,8"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:RouteRule">
+                            <Border Padding="12" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                            <Button Content="↑" Tag="{x:Bind}" Click="MoveRuleUp_Click" AutomationProperties.Name="上移规则" ToolTipService.ToolTip="上移规则"/>
+                                            <Button Content="↓" Tag="{x:Bind}" Click="MoveRuleDown_Click" AutomationProperties.Name="下移规则" ToolTipService.ToolTip="下移规则"/>
+                                            <Button Content="删除" Tag="{x:Bind}" Click="RemoveRule_Click" AutomationProperties.Name="删除规则"/>
+                                        </StackPanel>
                                     </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </StackPanel>
-            </ScrollViewer>
+                                    <Expander IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                        <Expander.Header>
+                                            <TextBlock Text="{x:Bind Summary, Mode=OneWay}" TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                                        </Expander.Header>
+                                        <StackPanel Spacing="12">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <ComboBox Header="执行动作" ItemsSource="{x:Bind ActionOptions}" SelectedItem="{x:Bind Action, Mode=TwoWay}"
+                                                          HorizontalAlignment="Stretch"/>
+                                                <TextBox Grid.Column="1" Header="出口标签" Text="{x:Bind Outbound, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                         PlaceholderText="route 时指定，如 direct / remote"/>
+                                            </Grid>
+                                            <TextBlock Text="{x:Bind AdvancedNote}" TextWrapping="Wrap" FontSize="12"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <StackPanel Spacing="8" Visibility="{x:Bind IsSimple, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                <TextBlock Text="匹配条件" FontWeight="SemiBold"/>
+                                                <ItemsControl ItemsSource="{x:Bind Conditions}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="models:RouteMatchCondition">
+                                                            <Grid ColumnSpacing="8" Margin="0,0,0,8">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="160"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <ComboBox ItemsSource="{x:Bind Options}" DisplayMemberPath="Label" SelectedValuePath="Key"
+                                                                          SelectedValue="{x:Bind Field, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                                                                          VerticalAlignment="Top" AutomationProperties.Name="匹配类型"/>
+                                                                <TextBox Grid.Column="1" Text="{x:Bind Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                         PlaceholderText="{x:Bind Hint, Mode=OneWay}" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="100"
+                                                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="匹配内容"
+                                                                         Visibility="{x:Bind IsBoolean, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Reverse}"/>
+                                                                <ToggleSwitch Grid.Column="1" IsOn="{x:Bind BooleanValue, Mode=TwoWay}" OnContent="是" OffContent="否"
+                                                                              AutomationProperties.Name="匹配私有 IP"
+                                                                              Visibility="{x:Bind IsBoolean, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                <Button Grid.Column="2" Content="移除" Tag="{x:Bind}" Click="RemoveCondition_Click"
+                                                                        VerticalAlignment="Top" AutomationProperties.Name="移除匹配条件"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <Button Content="+ 添加条件" Tag="{x:Bind}" Click="AddCondition_Click"/>
+                                                <TextBlock Text="不同类型的条件通常需要同时满足；同一类型的多个值填写在同一项中。无条件规则会匹配所有流量。"
+                                                           TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Expander>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <Button Content="+ 添加规则" Click="AddRule_Click" HorizontalAlignment="Left"
+                        IsEnabled="{x:Bind ViewModel.CanEditRules, Mode=OneWay}"/>
+            </StackPanel>
+
 
             <TextBox Grid.Row="1"
                      Text="{x:Bind ViewModel.ConfigText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -422,6 +354,7 @@
 
         <TextBlock Grid.Row="2"
                    Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                   TextWrapping="Wrap" MaxHeight="96"
                    Style="{StaticResource CaptionTextBlockStyle}"
                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
     </Grid>

@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using singC.ViewModels;
 using singC.Helpers;
 using System;
+using System.Linq;
 using singC.Models;
 
 namespace singC.Pages
@@ -33,6 +34,39 @@ namespace singC.Pages
             AppUpdateStatus.Text = service.Status;
             ReleaseNotesText.Text = service.Notes;
             _updatingControls = false;
+        }
+
+        private void AddRule_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.AddRuleCommand.Execute(null);
+            if (ViewModel.RouteRules.LastOrDefault() is { } rule)
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    RulesList.UpdateLayout();
+                    if (RulesList.ContainerFromItem(rule) is FrameworkElement item)
+                        item.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = true });
+                });
+        }
+        private void RemoveRule_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { Tag: RouteRule rule }) ViewModel.RemoveRuleCommand.Execute(rule);
+        }
+        private void MoveRuleUp_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { Tag: RouteRule rule }) ViewModel.MoveRuleUpCommand.Execute(rule);
+        }
+        private void MoveRuleDown_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { Tag: RouteRule rule }) ViewModel.MoveRuleDownCommand.Execute(rule);
+        }
+        private void AddCondition_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { Tag: RouteRule rule }) rule.AddCondition();
+        }
+        private void RemoveCondition_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { Tag: RouteMatchCondition condition })
+                ViewModel.RouteRules.FirstOrDefault(r => r.Conditions.Contains(condition))?.Conditions.Remove(condition);
         }
 
         private void AutoUpdateToggle_Toggled(object sender, RoutedEventArgs e)
