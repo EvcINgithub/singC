@@ -30,6 +30,8 @@ public sealed class TrafficStatisticsViewModel : INotifyPropertyChanged
     public IReadOnlyList<DailyTraffic> RecentDays => _snapshot.RecentDays;
     public string UploadSpeed => TrafficTotals.FormatBytes(_snapshot.UploadSpeed) + "/s";
     public string DownloadSpeed => TrafficTotals.FormatBytes(_snapshot.DownloadSpeed) + "/s";
+    public bool HasLiveData => _state == WebSocketConnectionState.Connected
+        && _snapshot.LastSample is { } last && DateTimeOffset.Now - last <= TimeSpan.FromSeconds(5);
     public string LastUpdated => _snapshot.LastSample is { } time ? $"最近采样：{time:yyyy-MM-dd HH:mm:ss}" : "尚未收到流量数据";
     public string StorageError => _snapshot.StorageError;
     public string Status => _state switch
