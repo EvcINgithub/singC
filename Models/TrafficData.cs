@@ -103,6 +103,13 @@ namespace singC.Models
             set { _rule = value; OnPropertyChanged(); }
         }
 
+        private string? _outboundTag;
+        public string? OutboundTag
+        {
+            get => _outboundTag;
+            set { _outboundTag = value; OnPropertyChanged(); }
+        }
+
         // 已有的格式化属性保持不变，但需在相关字段变更时触发通知（已在上面处理）
         public string UploadDisplay => FormatBytes(UploadBytes);
         public string DownloadDisplay => FormatBytes(DownloadBytes);
@@ -139,6 +146,7 @@ namespace singC.Models
             if (DownloadBytes != other.DownloadBytes) { DownloadBytes = other.DownloadBytes; changed = true; }
             if (!string.Equals(Host, other.Host)) { Host = other.Host; changed = true; }
             if (!string.Equals(Rule, other.Rule)) { Rule = other.Rule; changed = true; }
+            if (!string.Equals(OutboundTag, other.OutboundTag)) { OutboundTag = other.OutboundTag; changed = true; }
 
             return changed;
         }

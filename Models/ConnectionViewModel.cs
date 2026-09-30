@@ -238,6 +238,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
             service.AutoReconnect = AutoReconnect;
             service.OnConnectionsReceived += OnConnectionsReceived;
             service.OnTrafficTotalsReceived += Traffic.Record;
+            service.OnConnectionTrafficReceived += Traffic.RecordConnections;
             service.ConnectionStateChanged += OnWebSocketStateChanged;
             await service.StartWebSocketAsync();
             _wsService = service;
@@ -250,6 +251,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
             {
                 service.OnConnectionsReceived -= OnConnectionsReceived;
                 service.OnTrafficTotalsReceived -= Traffic.Record;
+                service.OnConnectionTrafficReceived -= Traffic.RecordConnections;
                 service.ConnectionStateChanged -= OnWebSocketStateChanged;
                 service.Dispose();
             }
@@ -281,6 +283,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
         {
             _wsService.OnConnectionsReceived -= OnConnectionsReceived;
             _wsService.OnTrafficTotalsReceived -= Traffic.Record;
+            _wsService.OnConnectionTrafficReceived -= Traffic.RecordConnections;
             _wsService.ConnectionStateChanged -= OnWebSocketStateChanged;
             await _wsService.StopAsync();
             _wsService.Dispose();

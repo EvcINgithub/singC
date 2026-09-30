@@ -38,6 +38,7 @@ namespace singC.Models
         // 事件：当 WebSocket 推送连接数据时触发
         public event Action<List<ConnectionInfo>>? OnConnectionsReceived;
         public event Action<long, long>? OnTrafficTotalsReceived;
+        public event Action<IReadOnlyList<ConnectionTrafficSample>>? OnConnectionTrafficReceived;
         public event Action<WebSocketConnectionState, int, string>? ConnectionStateChanged;
 
         public ClashWebSocketService(string baseUrl = "http://127.0.0.1:9090", string? secret = null)
@@ -160,7 +161,37 @@ namespace singC.Models
                 OnTrafficTotalsReceived?.Invoke(up, down);
 
             if (root.TryGetProperty("connections", out var arr))
+            {
+                if (arr.ValueKind is JsonValueKind.Array or JsonValueKind.Null)
+                    OnConnectionTrafficReceived?.Invoke(ParseConnectionTraffic(arr));
                 OnConnectionsReceived?.Invoke(arr.ValueKind == JsonValueKind.Array ? ParseConnections(arr) : new());
+            }
+        }
+
+        internal static string? ReadOutboundTag(JsonElement item)
+        {
+            if (!item.TryGetProperty("chains", out var chains) || chains.ValueKind != JsonValueKind.Array
+                || chains.GetArrayLength() == 0) return null;
+            var last = chains[chains.GetArrayLength() - 1];
+            return last.ValueKind == JsonValueKind.String ? last.GetString() : null;
+        }
+
+        private static IReadOnlyList<ConnectionTrafficSample> ParseConnectionTraffic(JsonElement array)
+        {
+            var samples = new List<ConnectionTrafficSample>();
+            if (array.ValueKind != JsonValueKind.Array) return samples;
+            foreach (var item in array.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object
+                    || !item.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String
+                    || !item.TryGetProperty("start", out var start) || start.ValueKind != JsonValueKind.String
+                    || !start.TryGetDateTimeOffset(out var startedAt)
+                    || !item.TryGetProperty("upload", out var up) || up.ValueKind != JsonValueKind.Number || !up.TryGetInt64(out long upload) || upload < 0
+                    || !item.TryGetProperty("download", out var down) || down.ValueKind != JsonValueKind.Number || !down.TryGetInt64(out long download) || download < 0)
+                    continue;
+                samples.Add(new(id.GetString() ?? "", startedAt, ReadOutboundTag(item), upload, download));
+            }
+            return samples;
         }
 
         private List<ConnectionInfo> ParseConnections(JsonElement connArray)
@@ -180,6 +211,7 @@ namespace singC.Models
                     UploadBytes = item.GetProperty("upload").GetInt64(),
                     DownloadBytes = item.GetProperty("download").GetInt64(),
                     Rule = item.GetProperty("rule").GetString()?? "",
+                    OutboundTag = ReadOutboundTag(item),
                 };
 
                 // 也可尝试解析 Rule 等额外字段

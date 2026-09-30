@@ -27,6 +27,7 @@ void Fixture(string dir, string version, params string[] extras)
 try
 {
     TrafficStatisticsTests.Run(Dir("traffic"), Check);
+    OutboundTrafficStatisticsTests.Run(Dir("outbound-traffic"), Check);
     RouteEditorTests.Run(Check);
     await ProxyModeTests.RunAsync(Dir("modes"), Check);
     await NetworkDiagnosticsTests.RunAsync(Check);

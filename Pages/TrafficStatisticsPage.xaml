@@ -4,8 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:singC.Models"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-    <ScrollViewer HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Auto">
-        <StackPanel Padding="24" Spacing="20" MinWidth="440" MaxWidth="1100" HorizontalAlignment="Stretch">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+        <StackPanel Padding="24" Spacing="20" MaxWidth="1100" HorizontalAlignment="Stretch">
             <StackPanel Spacing="6">
                 <TextBlock Text="流量统计" Style="{StaticResource TitleTextBlockStyle}"/>
                 <TextBlock Text="{Binding Status}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -66,6 +66,64 @@
                     <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding AllTime.DownloadDisplay}"/>
                     <TextBlock Grid.Row="4" Grid.Column="3" Text="{Binding AllTime.TotalDisplay}"/>
                 </Grid>
+            </Border>
+
+            <Border Padding="20" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Spacing="14">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="按出站统计" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedIndex="{Binding OutboundPeriodIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="出站统计周期" MinWidth="120">
+                            <ComboBoxItem Content="本次运行"/>
+                            <ComboBoxItem Content="今日"/>
+                            <ComboBoxItem Content="本月"/>
+                            <ComboBoxItem Content="累计"/>
+                        </ComboBox>
+                    </Grid>
+                    <TextBlock Text="连接采样统计，可能漏计短连接；分类合计可能小于总流量。"
+                               TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="出站名称" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="1" Text="上传" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="2" Text="下载" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="3" Text="合计" FontWeight="SemiBold"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding OutboundRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:OutboundTrafficRow">
+                                <Grid Padding="0,8" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Totals.UploadDisplay}"/>
+                                    <TextBlock Grid.Column="2" Text="{x:Bind Totals.DownloadDisplay}"/>
+                                    <TextBlock Grid.Column="3" Text="{x:Bind Totals.TotalDisplay}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="此周期暂无出站采样数据。启动后开始采集，历史总流量不会补拆。"
+                               Visibility="{Binding OutboundEmptyVisibility}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="按配置出站标签归类，同名标签跨配置合并；采样前及连接关闭前未观测到的流量不计入分类。"
+                               TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                    <TextBlock Text="{Binding OutboundStorageError}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                </StackPanel>
             </Border>
 
             <StackPanel Spacing="12">
