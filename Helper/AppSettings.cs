@@ -1,4 +1,4 @@
-﻿// Helpers/AppSettings.cs
+// Helpers/AppSettings.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,8 +9,8 @@ namespace singC.Helpers
 {
     public static class AppSettings
     {
-        private static readonly string SettingsFilePath;
-        private static Dictionary<string, string>? _settings;
+        private static readonly SettingsStore Store = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "singC", "settings.json"));
+        public static string StorageError => Store.ReadError;
 
         public const string NetworkTestUrlKey = "NetworkTestUrl";
         public const string NetworkTestHostKey = "NetworkTestHost";
@@ -39,119 +39,17 @@ namespace singC.Helpers
         }
 
         private static List<String> _paths = new List<String>([
-            "SingBoxPath", 
-            "ConfigPath", 
+            "SingBoxPath",
+            "ConfigPath",
             "BackgroundImagePath"]);
 
-        static AppSettings()
-        {
-            // 存储到用户本地应用数据目录下的 settings.json
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string appFolder = Path.Combine(localAppData, "singC");
-            Directory.CreateDirectory(appFolder);
-            SettingsFilePath = Path.Combine(appFolder, "settings.json");
-        }
-
-        public static string? Get(string key)
-        {
-            LoadIfNeeded();
-            _settings!.TryGetValue(key, out string? value);
-            return value;
-        }
-
-        public static string? Get(PathKey key)
-        {
-            return Get(GetPathKey(key));
-        }
-        public static void Set(string key, string value)
-        {
-            LoadIfNeeded();
-            bool existed = _settings!.TryGetValue(key, out var previous);
-            _settings![key] = value;
-            try { Save(); }
-            catch
-            {
-                if (existed) _settings[key] = previous!;
-                else _settings.Remove(key);
-                throw;
-            }
-        }
-
-        public static void Set(PathKey key, string value)
-        {
-            Set(GetPathKey(key), value);
-        }
-        public static void Init()
-        {
-            LoadIfNeeded();
-        }
-
-        public static List<string> GetList(string key)
-        {
-            LoadIfNeeded();
-            if (!_settings!.TryGetValue(key, out string? value) || string.IsNullOrWhiteSpace(value))
-                return new List<string>();
-
-            try
-            {
-                return JsonSerializer.Deserialize<List<string>>(value)?
-                           .Where(item => !string.IsNullOrWhiteSpace(item))
-                           .Distinct(StringComparer.OrdinalIgnoreCase)
-                           .ToList()
-                       ?? new List<string>();
-            }
-            catch
-            {
-                return new List<string>();
-            }
-        }
-
-        public static void SetList(string key, IEnumerable<string> values)
-        {
-            LoadIfNeeded();
-            var cleaned = values
-                .Where(item => !string.IsNullOrWhiteSpace(item))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            _settings![key] = JsonSerializer.Serialize(cleaned);
-            Save();
-        }
-        private static void LoadIfNeeded()
-        {
-            if (_settings != null) return;
-
-            try
-            {
-                if (File.Exists(SettingsFilePath))
-                {
-                    string json = File.ReadAllText(SettingsFilePath);
-                    _settings = JsonSerializer.Deserialize<Dictionary<string, string>>(json)
-                               ?? new Dictionary<string, string>();
-                }
-                else
-                {
-                    _settings = new Dictionary<string, string>();
-                }
-            }
-            catch
-            {
-                _settings = new Dictionary<string, string>();
-            }
-        }
-
-        private static void Save()
-        {
-            if (_settings == null) return;
-            string json = JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true });
-            string temporary = SettingsFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                File.WriteAllText(temporary, json);
-                File.Move(temporary, SettingsFilePath, overwrite: true);
-            }
-            finally { if (File.Exists(temporary)) File.Delete(temporary); }
-        }
-
+        public static string? Get(string key) => Store.Get(key);
+        public static string? Get(PathKey key) => Get(GetPathKey(key));
+        public static void Set(string key, string value) => Store.Set(key, value);
+        public static void Set(PathKey key, string value) => Set(GetPathKey(key), value);
+        public static void Init() { _ = Store.ReadError; }
+        public static List<string> GetList(string key) => Store.GetList(key);
+        public static void SetList(string key, IEnumerable<string> values) => Store.SetList(key, values);
         public static string GetPathKey(PathKey key)
         {
             return _paths[(int)key];

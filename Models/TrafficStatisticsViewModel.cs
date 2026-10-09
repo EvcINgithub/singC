@@ -6,7 +6,7 @@ using System.IO;
 
 namespace singC.Models;
 
-public sealed class TrafficStatisticsViewModel : INotifyPropertyChanged
+public sealed class TrafficStatisticsViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly TrafficStatistics _statistics = new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "singC", "traffic-statistics.json"));
@@ -84,6 +84,12 @@ public sealed class TrafficStatisticsViewModel : INotifyPropertyChanged
     {
         _statistics.Save(force: true);
         _outboundStatistics.Save(force: true);
+    }
+    public void Dispose()
+    {
+        _timer.Stop();
+        _statistics.Dispose();
+        _outboundStatistics.Dispose();
     }
     private void Refresh()
     {

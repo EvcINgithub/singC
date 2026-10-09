@@ -7,7 +7,7 @@ internal static class TrafficStatisticsTests
     {
         var time = new DateTimeOffset(2026, 9, 30, 23, 59, 58, TimeSpan.FromHours(8));
         string path = Path.Combine(directory, "statistics.json");
-        var statistics = new TrafficStatistics(path);
+        using var statistics = new TrafficStatistics(path);
         TrafficStatisticsSnapshot Snapshot(double seconds = 2) => statistics.GetSnapshot(time, seconds);
         check(Snapshot().AllTime == new TrafficTotals(), "traffic: empty history");
         statistics.BeginSession();
@@ -37,7 +37,7 @@ internal static class TrafficStatisticsTests
         check(Snapshot(11).UploadSpeed == 0 && Snapshot(11).DownloadSpeed == 0,
             "traffic: stale samples clear both speeds");
         statistics.Save(force: true);
-        var restored = new TrafficStatistics(path);
+        using var restored = new TrafficStatistics(path);
         check(restored.GetSnapshot(time, 12).AllTime == Snapshot(12).AllTime,
             "traffic: daily history survives application restart");
         check(restored.GetSnapshot(time, 12).Session == new TrafficTotals(),
@@ -64,7 +64,7 @@ internal static class TrafficStatisticsTests
         {
             string damagedPath = Path.Combine(directory, "damaged.json");
             File.WriteAllText(damagedPath, bad);
-            var damaged = new TrafficStatistics(damagedPath);
+            using var damaged = new TrafficStatistics(damagedPath);
             damaged.Record(1, 2, time, 0);
             damaged.Save(force: true);
             check(damaged.GetSnapshot(time, 0).StorageError.Length > 0
@@ -72,7 +72,7 @@ internal static class TrafficStatisticsTests
         }
 
         string blockedPath = Path.Combine(directory, "blocked");
-        var blocked = new TrafficStatistics(blockedPath);
+        using var blocked = new TrafficStatistics(blockedPath);
         Directory.CreateDirectory(blockedPath);
         blocked.Record(11, 22, time, 0);
         blocked.Save(force: true);

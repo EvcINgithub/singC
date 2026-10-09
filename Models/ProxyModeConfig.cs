@@ -36,6 +36,36 @@ public static class ProxyModeConfig
 
         if (mode == ProxyMode.SystemProxy)
         {
+            ConfigureSystemProxy(inbounds, tuns, port);
+            proxyHost = "127.0.0.1";
+            proxyPort = port;
+        }
+        else if (mode == ProxyMode.Tun)
+        {
+            ConfigureTun(root, inbounds, tuns);
+        }
+
+        // singC owns Windows proxy restoration, including after a forced core exit.
+        foreach (var inbound in inbounds.OfType<JsonObject>())
+        {
+            if (Type(inbound) is not ("http" or "mixed")) continue;
+            if (mode == ProxyMode.Configuration && inbound["set_system_proxy"]?.GetValue<bool>() == true)
+            {
+                if (proxyPort != null) throw new InvalidDataException("多个入站同时设置系统代理，请仅保留一个 set_system_proxy。");
+                proxyHost = inbound["listen"]?.GetValue<string>() ?? "127.0.0.1";
+                if (proxyHost is "0.0.0.0" or "") proxyHost = "127.0.0.1";
+                if (proxyHost is "::" or "[::]") proxyHost = "::1";
+                proxyPort = inbound["listen_port"]?.GetValue<int>();
+                if (proxyPort is not (>= 1 and <= 65535)) throw new InvalidDataException("系统代理入站缺少有效端口。");
+            }
+            inbound["set_system_proxy"] = false;
+        }
+        return new(root.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }),
+            inbounds.OfType<JsonObject>().Any(i => Type(i) == "tun"), proxyHost, proxyPort, mode == ProxyMode.Tun);
+    }
+
+    private static void ConfigureSystemProxy(JsonArray inbounds, JsonObject[] tuns, int port)
+    {
             if (tuns.Length > 1) throw new InvalidDataException("配置包含多个 TUN 入站，请先合并为一个 TUN 入站后再快捷切换。");
             // Reuse the TUN tag so inbound-based routing and DNS rules still match.
             JsonObject? proxy = null;
@@ -56,11 +86,11 @@ public static class ProxyModeConfig
             proxy["type"] = "mixed";
             proxy["listen"] = "127.0.0.1";
             proxy["listen_port"] = port;
-            proxyHost = "127.0.0.1";
-            proxyPort = port;
-        }
-        else if (mode == ProxyMode.Tun)
-        {
+
+    }
+
+    private static void ConfigureTun(JsonObject root, JsonArray inbounds, JsonObject[] tuns)
+    {
             if (tuns.Length == 0)
             {
                 string tag = UniqueTag(inbounds, "singc-tun");
@@ -82,25 +112,6 @@ public static class ProxyModeConfig
                 ExtendInboundRules(root["dns"], proxyTags, tag);
             }
             else foreach (var tun in tuns) tun["auto_route"] = true;
-        }
-
-        // singC owns Windows proxy restoration, including after a forced core exit.
-        foreach (var inbound in inbounds.OfType<JsonObject>())
-        {
-            if (Type(inbound) is not ("http" or "mixed")) continue;
-            if (mode == ProxyMode.Configuration && inbound["set_system_proxy"]?.GetValue<bool>() == true)
-            {
-                if (proxyPort != null) throw new InvalidDataException("多个入站同时设置系统代理，请仅保留一个 set_system_proxy。");
-                proxyHost = inbound["listen"]?.GetValue<string>() ?? "127.0.0.1";
-                if (proxyHost is "0.0.0.0" or "") proxyHost = "127.0.0.1";
-                if (proxyHost is "::" or "[::]") proxyHost = "::1";
-                proxyPort = inbound["listen_port"]?.GetValue<int>();
-                if (proxyPort is not (>= 1 and <= 65535)) throw new InvalidDataException("系统代理入站缺少有效端口。");
-            }
-            inbound["set_system_proxy"] = false;
-        }
-        return new(root.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }),
-            inbounds.OfType<JsonObject>().Any(i => Type(i) == "tun"), proxyHost, proxyPort, mode == ProxyMode.Tun);
     }
 
     private static string Type(JsonObject inbound) => inbound["type"]?.GetValue<string>() ?? "";

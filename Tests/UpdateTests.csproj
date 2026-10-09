@@ -8,6 +8,16 @@
   <ItemGroup><Compile Include="../UpdateCore/*.cs" Link="UpdateCore/%(Filename)%(Extension)"/></ItemGroup>
   <ItemGroup><Compile Remove="FixtureApp/**"/></ItemGroup>
   <ItemGroup>
+    <Compile Include="../Models/ConfigCheckRunner.cs" Link="Models/ConfigCheckRunner.cs"/>
+    <Compile Include="../Models/ConfigLoadCoordinator.cs" Link="Models/ConfigLoadCoordinator.cs"/>
+    <Compile Include="../Models/ConnectionPresentation.cs" Link="Models/ConnectionPresentation.cs"/>
+    <Compile Include="../Models/LogAnalysis.cs" Link="Models/LogAnalysis.cs"/>
+    <Compile Include="../Helper/SettingsStore.cs" Link="Helper/SettingsStore.cs"/>
+    <Compile Include="../Helper/ShutdownSequence.cs" Link="Helper/ShutdownSequence.cs"/>
+    <Compile Include="../Models/ConfigFileStore.cs" Link="Models/ConfigFileStore.cs"/>
+    <Compile Include="../Models/StatisticsFileStore.cs" Link="Models/StatisticsFileStore.cs"/>
+    <Compile Include="../Models/ClashApiEndpoint.cs" Link="Models/ClashApiEndpoint.cs"/>
+    <Compile Include="../Models/ClashConnectionSnapshot.cs" Link="Models/ClashConnectionSnapshot.cs"/>
     <Compile Include="../Models/RouteModel.cs" Link="Models/RouteModel.cs"/>
     <Compile Include="../Models/RouteConfigDocument.cs" Link="Models/RouteConfigDocument.cs"/>
     <Compile Include="../Models/TrafficStatistics.cs" Link="Models/TrafficStatistics.cs"/>

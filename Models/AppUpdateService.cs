@@ -80,7 +80,7 @@ public sealed class AppUpdateService
         {
             AppSettings.Set(LastCheckKey, DateTimeOffset.UtcNow.ToString("O"));
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            using var response = await Client.GetAsync(ReleaseInfo.LatestUrl, timeout.Token);
+            using var response = await Client.GetAsync(ReleaseInfo.LatestUrl, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 _release = null;
@@ -90,7 +90,7 @@ public sealed class AppUpdateService
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
                 throw new HttpRequestException("GitHub 暂时限制请求，请稍后重试。");
             response.EnsureSuccessStatusCode();
-            _release = ReleaseInfo.Parse((await response.Content.ReadAsStringAsync(timeout.Token)).TrimStart('\uFEFF'), CurrentVersion);
+            _release = ReleaseInfo.Parse((await BoundedResponse.ReadAsync(response.Content, 1024 * 1024, timeout.Token)).TrimStart('\uFEFF'), CurrentVersion);
             SetStatus(_release == null ? "当前已是最新版本。" : $"发现新版本 {_release.Version.ToString(3)}");
             prompt = _release != null;
         }
@@ -140,8 +140,9 @@ public sealed class AppUpdateService
             using (new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose)) { }
             var work = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "singC", "updates", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(work);
-            var hashText = await Client.GetStringAsync(release.HashUrl, cancellation.Token);
-            if (hashText.Length > 1024) throw new InvalidDataException("校验文件过大。");
+            using var hashResponse = await Client.GetAsync(release.HashUrl, HttpCompletionOption.ResponseHeadersRead, cancellation.Token);
+            hashResponse.EnsureSuccessStatusCode();
+            var hashText = await BoundedResponse.ReadAsync(hashResponse.Content, 1024, cancellation.Token);
             var hash = ReleaseInfo.ParseHash(hashText, release.PackageName);
             var zipPath = Path.Combine(work, "package.zip");
             using (var response = await Client.GetAsync(release.PackageUrl, HttpCompletionOption.ResponseHeadersRead, cancellation.Token))
@@ -183,16 +184,14 @@ public sealed class AppUpdateService
             start.ArgumentList.Add(requestPath);
             helper = Process.Start(start) ?? throw new IOException("无法启动更新程序。");
             var wait = Stopwatch.StartNew();
-            while (!File.Exists(Path.Combine(work, "helper-ready")))
-            {
-                if (helper.HasExited || wait.Elapsed > TimeSpan.FromSeconds(30)) throw new IOException("更新程序准备失败，当前版本未修改。");
-                await Task.Delay(100);
-            }
+            await UpdateHandoff.WaitUntilReadyAsync(() => File.Exists(Path.Combine(work, "helper-ready")),
+                () => helper.HasExited, () => wait.Elapsed, Task.Delay, cancellation.Token);
             if (resume)
             {
                 await SingBoxService.Instance.StopForUpdateAsync();
                 stopped = true;
             }
+            await ConnectionViewModel.Instance.ShutdownAsync();
             handedOff = true;
             App.Current.Exit();
         }

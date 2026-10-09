@@ -26,6 +26,12 @@ void Fixture(string dir, string version, params string[] extras)
 }
 try
 {
+    await SettingsStorageTests.RunAsync(Dir("settings-storage"), Check);
+    await ConnectionStorageTests.RunAsync(Dir("connection-storage"), Check);
+    await LifecyclePresentationTests.RunAsync(Dir("lifecycle-presentation"), Check);
+    ModeBoundaryTests.Run(Check);
+    await WebSocketLifecycleTests.RunAsync(Check);
+    UpdateBoundaryTests.Run(Dir("update-boundaries"), Check);
     TrafficStatisticsTests.Run(Dir("traffic"), Check);
     OutboundTrafficStatisticsTests.Run(Dir("outbound-traffic"), Check);
     RouteEditorTests.Run(Check);

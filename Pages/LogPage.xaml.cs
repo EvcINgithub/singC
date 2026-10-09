@@ -1,4 +1,4 @@
-﻿using Microsoft.UI;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -63,7 +63,7 @@ public sealed partial class LogPage : Page
 
     public static string CleanAnsiSequences(string input)
     {
-        return Regex.Replace(input, @"\x1b\[[\d;]*[\x40-\x7E]", string.Empty);
+        return LogAnalysis.CleanAnsiSequences(input);
     }
 
     private void OnErrorDataReceived(object sender, DataReceivedEventArgs e)
@@ -137,6 +137,8 @@ public sealed partial class LogPage : Page
 
     private async void ExportFilteredButton_Click(object sender, RoutedEventArgs e)
     {
+        try
+        {
         if (FilteredLogs.Count == 0) return;
 
         var picker = new FileSavePicker
@@ -150,6 +152,8 @@ public sealed partial class LogPage : Page
 
         string text = string.Join(Environment.NewLine, FilteredLogs.Select(item => item.CopyText));
         await Windows.Storage.FileIO.WriteTextAsync(file, text);
+            }
+        catch (Exception ex) { await singC.Helpers.UiError.ShowAsync(XamlRoot, "导出日志", ex); }
     }
 
     private static void CopyToClipboard(string text)
@@ -335,20 +339,7 @@ public sealed partial class LogPage : Page
 
     private static IReadOnlyList<string> BuildKeywordSummary(IEnumerable<LogEntry> logs)
     {
-        var logList = logs.ToList();
-        var keywords = new[] { "error", "failed", "timeout", "dns", "connect", "reject", "warn", "panic" };
-        return keywords
-            .Select(keyword => new
-            {
-                Keyword = keyword,
-                Count = logList.Count(log => log.Message.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-            })
-            .Where(item => item.Count > 0)
-            .OrderByDescending(item => item.Count)
-            .Take(6)
-            .Select(item => $"{item.Keyword}: {item.Count}")
-            .DefaultIfEmpty("暂无高频关键词")
-            .ToList();
+        return LogAnalysis.Summarize(logs.Select(log => log.Message));
     }
 }
 

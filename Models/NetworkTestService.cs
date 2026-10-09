@@ -76,9 +76,17 @@ public sealed record NetworkTestOptions(Uri Target, Uri? ExitIp, int TimeoutSeco
     public static readonly IReadOnlyList<string> CommonSites = Array.AsReadOnly(new[]
         { DefaultTarget, "https://github.com/", "https://www.google.com/" });
 
-    public static bool TryParseUrl(string text, out Uri? uri) => Uri.TryCreate(text.Trim(), UriKind.Absolute, out uri)
-        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
-        && !string.IsNullOrEmpty(uri.Host) && string.IsNullOrEmpty(uri.UserInfo);
+    public static bool TryParseUrl(string text, out Uri? uri)
+    {
+        uri = null;
+        if (string.IsNullOrWhiteSpace(text) || text.Any(char.IsControl)) return false;
+        if (!Uri.TryCreate(text.Trim(), UriKind.Absolute, out var candidate)
+            || (candidate.Scheme != Uri.UriSchemeHttp && candidate.Scheme != Uri.UriSchemeHttps)
+            || !string.IsNullOrEmpty(candidate.UserInfo)) return false;
+        // Absolute HTTP(S) URIs parsed by System.Uri already require a host.
+        uri = candidate;
+        return true;
+    }
 
     public IReadOnlyList<Uri> HttpTargets => new[] { Target }
         .Concat(IncludeCommonSites ? CommonSites.Select(url => new Uri(url)) : Array.Empty<Uri>())
@@ -88,6 +96,10 @@ public sealed record NetworkTestOptions(Uri Target, Uri? ExitIp, int TimeoutSeco
 public sealed class NetworkTestService
 {
     public const int StabilityAttempts = 10;
+    private const int MinimumTimeoutSeconds = 1;
+    private const int MaximumTimeoutSeconds = 30;
+    private const int MaximumExitResponseBytes = 4096;
+    private const int MaximumErrorLength = 240;
     private readonly Func<HttpClient> _createHttpClient;
 
     public NetworkTestService() : this(() => new HttpClient(new SocketsHttpHandler { UseCookies = false })
@@ -105,12 +117,6 @@ public sealed class NetworkTestService
             singBoxRunning ? "sing-box 正在运行。" : "sing-box 未运行，仍可检查当前系统网络。",
             "请求跟随系统代理、TUN 和路由规则；请求成功不代表一定经过代理。"));
 
-        async Task ReportAsync(Task<NetworkTestResult> task)
-        {
-            var result = await task;
-            token.ThrowIfCancellationRequested();
-            progress.Report(result);
-        }
         // Sites, the local controller and the exit service are independent probes.
         var tasks = options.HttpTargets.Select(async uri =>
         {
@@ -123,22 +129,16 @@ public sealed class NetworkTestService
         }).ToList();
         if (singBoxRunning)
             tasks.Add(ReportAsync(ExecuteAsync("控制接口", NetworkTestKind.Local, options.TimeoutSeconds,
-                ct => CheckControllerAsync(configPath, ct), token)));
+                ct => CheckControllerAsync(configPath, ct), token), token, progress));
         if (options.ExitIp != null)
             tasks.Add(ReportAsync(ExecuteAsync("当前出口 IP", NetworkTestKind.ExitIp, options.TimeoutSeconds,
-                ct => CheckExitIpAsync(options.ExitIp, ct), token)));
+                ct => CheckExitIpAsync(options.ExitIp, ct), token), token, progress));
         await Task.WhenAll(tasks);
     }
 
     private static async Task CheckNetworkPathAsync(Uri uri, int timeout, CancellationToken token,
         IProgress<NetworkTestResult> progress)
     {
-        async Task ReportAsync(Task<NetworkTestResult> task)
-        {
-            var result = await task;
-            token.ThrowIfCancellationRequested();
-            progress.Report(result);
-        }
         await Task.WhenAll(
             ReportAsync(ExecuteAsync($"DNS · {uri.Host}", NetworkTestKind.Dns, timeout, async ct =>
             {
@@ -146,13 +146,21 @@ public sealed class NetworkTestService
                 return new ProbeResult(addresses.Length > 0 ? NetworkTestStatus.Success : NetworkTestStatus.Failed,
                     string.Join(", ", addresses.Select(ip => ip.ToString()).Take(4)),
                     addresses.Length > 0 ? "" : AdviceFor(NetworkTestKind.Dns));
-            }, token)),
+            }, token), token, progress),
             ReportAsync(ExecuteAsync($"TCP · {uri.Host}:{uri.Port}", NetworkTestKind.Tcp, timeout, async ct =>
             {
                 using var client = new TcpClient();
                 await client.ConnectAsync(uri.DnsSafeHost, uri.Port, ct);
                 return new ProbeResult(NetworkTestStatus.Success, $"已连接 {uri.DnsSafeHost}:{uri.Port}");
-            }, token)));
+            }, token), token, progress));
+    }
+
+    private static async Task ReportAsync(Task<NetworkTestResult> task, CancellationToken token,
+        IProgress<NetworkTestResult> progress)
+    {
+        var result = await task;
+        token.ThrowIfCancellationRequested();
+        progress.Report(result);
     }
 
     public async Task RunStabilityAsync(NetworkTestOptions options, CancellationToken token,
@@ -193,7 +201,8 @@ public sealed class NetworkTestService
         token.ThrowIfCancellationRequested();
         var stopwatch = Stopwatch.StartNew();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, 30)));
+        int effectiveTimeout = Math.Clamp(timeoutSeconds, MinimumTimeoutSeconds, MaximumTimeoutSeconds);
+        timeout.CancelAfter(TimeSpan.FromSeconds(effectiveTimeout));
         try
         {
             var result = await operation(timeout.Token);
@@ -204,12 +213,12 @@ public sealed class NetworkTestService
         catch (OperationCanceledException)
         {
             return new(name, kind, kind == NetworkTestKind.Local ? NetworkTestStatus.Warning : NetworkTestStatus.Failed,
-                stopwatch.Elapsed, $"{Math.Clamp(timeoutSeconds, 1, 30)} 秒内未响应。", AdviceFor(kind));
+                stopwatch.Elapsed, $"{effectiveTimeout} 秒内未响应。", AdviceFor(kind));
         }
         catch (Exception ex)
         {
             return new(name, kind, kind == NetworkTestKind.Local ? NetworkTestStatus.Warning : NetworkTestStatus.Failed,
-                stopwatch.Elapsed, Trim(ex.Message, 240), AdviceFor(kind));
+                stopwatch.Elapsed, Trim(ex.Message, MaximumErrorLength), AdviceFor(kind));
         }
     }
 
@@ -256,10 +265,15 @@ public sealed class NetworkTestService
             return new(NetworkTestStatus.Warning, $"出口服务返回 HTTP {(int)response.StatusCode}", AdviceFor(NetworkTestKind.ExitIp));
         // Bound the response in case a user-configured endpoint returns a download.
         using var stream = await response.Content.ReadAsStreamAsync(token);
-        byte[] buffer = new byte[4097];
-        int count = 0, read;
-        while (count < buffer.Length && (read = await stream.ReadAsync(buffer.AsMemory(count), token)) > 0) count += read;
-        string ip = count > 4096 ? "" : ExtractIp(Encoding.UTF8.GetString(buffer, 0, count));
+        byte[] buffer = new byte[MaximumExitResponseBytes + 1];
+        int count = 0;
+        while (count < buffer.Length)
+        {
+            int read = await stream.ReadAsync(buffer.AsMemory(count), token);
+            if (read == 0) break;
+            count += read;
+        }
+        string ip = count > MaximumExitResponseBytes ? "" : ExtractIp(Encoding.UTF8.GetString(buffer, 0, count));
         return string.IsNullOrEmpty(ip)
             ? new(NetworkTestStatus.Warning, "服务响应不是有效的 IPv4 / IPv6 地址。", AdviceFor(NetworkTestKind.ExitIp))
             : new(NetworkTestStatus.Success, ip, "这是该查询服务看到的出口；不同网站可能命中不同路由。");
@@ -275,8 +289,11 @@ public sealed class NetworkTestService
                 && ip.ValueKind == JsonValueKind.String) value = ip.GetString()?.Trim() ?? "";
         }
         catch (JsonException) { }
-        bool standardNotation = value.Contains(':') || value.Split('.').Length == 4;
-        return standardNotation && IPAddress.TryParse(value, out var address) ? address.ToString() : "";
+        if (!IPAddress.TryParse(value, out var address)) return "";
+        if (address.AddressFamily == AddressFamily.InterNetworkV6) return address.ToString();
+        // Canonical dotted decimal rejects shortened, octal and hexadecimal IPv4 forms.
+        string canonical = address.ToString();
+        return value == canonical ? canonical : "";
     }
 
     public static string Summarize(IReadOnlyCollection<NetworkTestResult> results, bool stability)

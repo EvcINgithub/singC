@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Dispatching;
+using Microsoft.UI.Dispatching;
 using singC.Helpers;
 using singC.Models;
 using System;
@@ -36,6 +36,9 @@ public class ConnectionViewModel : INotifyPropertyChanged
     private bool _isStarting;
     private readonly SemaphoreSlim _serviceGate = new(1, 1);
     private long _runGeneration;
+    private readonly object _sampleGate = new();
+    private long _subscriptionVersion;
+    private bool _shuttingDown;
     private const int DefaultRefreshIntervalSeconds = 1;
     private const int MaxReconnectAttempts = 10;
 
@@ -52,8 +55,8 @@ public class ConnectionViewModel : INotifyPropertyChanged
         set
         {
             if (_autoReconnect == value) return;
+            if (!TrySavePreference(AppSettings.AutoReconnectKey, value.ToString(), nameof(AutoReconnect))) return;
             _autoReconnect = value;
-            AppSettings.Set(AppSettings.AutoReconnectKey, value.ToString());
             if (_wsService != null) _wsService.AutoReconnect = value;
             OnPropertyChanged();
         }
@@ -66,8 +69,8 @@ public class ConnectionViewModel : INotifyPropertyChanged
         {
             int normalized = Math.Clamp(value, 1, 10);
             if (_refreshIntervalSeconds == normalized) return;
+            if (!TrySavePreference(AppSettings.ConnectionRefreshIntervalKey, normalized.ToString(), nameof(RefreshIntervalSeconds))) return;
             _refreshIntervalSeconds = normalized;
-            AppSettings.Set(AppSettings.ConnectionRefreshIntervalKey, normalized.ToString());
             if (_refreshTimer != null) _refreshTimer.Interval = TimeSpan.FromSeconds(normalized);
             OnPropertyChanged();
             OnPropertyChanged(nameof(RefreshIntervalIndex));
@@ -86,8 +89,8 @@ public class ConnectionViewModel : INotifyPropertyChanged
         set
         {
             if (_sortMode == value) return;
+            if (!TrySavePreference(AppSettings.ConnectionSortKey, value, nameof(SortMode))) return;
             _sortMode = value;
-            AppSettings.Set(AppSettings.ConnectionSortKey, value);
             OnPropertyChanged();
             ApplyFilter();
         }
@@ -198,6 +201,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
         await _serviceGate.WaitAsync();
         try
         {
+            if (_shuttingDown) return;
             if (SingBoxService.Instance.IsRunning)
             {
                 if (_wsService != null && _runGeneration != SingBoxService.Instance.RunGeneration)
@@ -211,8 +215,10 @@ public class ConnectionViewModel : INotifyPropertyChanged
 
     public async Task ShutdownAsync()
     {
+        _shuttingDown = true;
         await _serviceGate.WaitAsync();
-        try { await StopAsync(); }
+        try { await StopAsync(); Traffic.Dispose(); }
+        catch { _shuttingDown = false; throw; }
         finally { _serviceGate.Release(); }
     }
 
@@ -231,15 +237,27 @@ public class ConnectionViewModel : INotifyPropertyChanged
         try
         {
             await Task.Delay(1000);
-            if (!SingBoxService.Instance.IsRunning) return;
-            Traffic.BeginSession();
+            if (_shuttingDown || !SingBoxService.Instance.IsRunning) return;
+            var endpoint = SingBoxService.Instance.GetActiveClashApiEndpoint();
             _runGeneration = SingBoxService.Instance.RunGeneration;
-            service = new ClashWebSocketService();
+            long generation = _runGeneration;
+            long version;
+            lock (_sampleGate) { version = ++_subscriptionVersion; Traffic.BeginSession(); }
+            service = new ClashWebSocketService(endpoint.Address.ToString(), endpoint.Secret);
             service.AutoReconnect = AutoReconnect;
-            service.OnConnectionsReceived += OnConnectionsReceived;
-            service.OnTrafficTotalsReceived += Traffic.Record;
-            service.OnConnectionTrafficReceived += Traffic.RecordConnections;
-            service.ConnectionStateChanged += OnWebSocketStateChanged;
+            service.OnConnectionsReceived += list =>
+            {
+                lock (_sampleGate) if (version == _subscriptionVersion && generation == SingBoxService.Instance.RunGeneration && SingBoxService.Instance.IsRunning) OnConnectionsReceived(list);
+            };
+            service.OnTrafficTotalsReceived += (up, down) =>
+            {
+                lock (_sampleGate) if (version == _subscriptionVersion && generation == SingBoxService.Instance.RunGeneration && SingBoxService.Instance.IsRunning) Traffic.Record(up, down);
+            };
+            service.OnConnectionTrafficReceived += samples =>
+            {
+                lock (_sampleGate) if (version == _subscriptionVersion && generation == SingBoxService.Instance.RunGeneration && SingBoxService.Instance.IsRunning) Traffic.RecordConnections(samples);
+            };
+            service.ConnectionStateChanged += (state, attempt, error) => OnWebSocketStateChanged(version, generation, state, attempt, error);
             await service.StartWebSocketAsync();
             _wsService = service;
             ConnectionStatus = service.ConnectionState == WebSocketConnectionState.Connected ? "已连接" : "连接中";
@@ -249,15 +267,13 @@ public class ConnectionViewModel : INotifyPropertyChanged
         {
             if (service != null)
             {
-                service.OnConnectionsReceived -= OnConnectionsReceived;
-                service.OnTrafficTotalsReceived -= Traffic.Record;
-                service.OnConnectionTrafficReceived -= Traffic.RecordConnections;
-                service.ConnectionStateChanged -= OnWebSocketStateChanged;
                 service.Dispose();
             }
 
             System.Diagnostics.Debug.WriteLine($"连接 WebSocket 启动失败: {ex.Message}");
             Traffic.SetConnectionState(WebSocketConnectionState.Failed);
+            ConnectionStatus = "采集失败";
+            LastError = ex.Message;
             _dispatcher.TryEnqueue(() =>
             {
                 lock (_latestConnectionsLock)
@@ -274,6 +290,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
 
     private async Task StopAsync()
     {
+        lock (_sampleGate) ++_subscriptionVersion;
         lock (_latestConnectionsLock)
             _latestConnections.Clear();
 
@@ -281,10 +298,6 @@ public class ConnectionViewModel : INotifyPropertyChanged
         _refreshTimer?.Stop();
         if (_wsService != null)
         {
-            _wsService.OnConnectionsReceived -= OnConnectionsReceived;
-            _wsService.OnTrafficTotalsReceived -= Traffic.Record;
-            _wsService.OnConnectionTrafficReceived -= Traffic.RecordConnections;
-            _wsService.ConnectionStateChanged -= OnWebSocketStateChanged;
             await _wsService.StopAsync();
             _wsService.Dispose();
             _wsService = null;
@@ -296,10 +309,11 @@ public class ConnectionViewModel : INotifyPropertyChanged
         ReconnectAttempt = 0;
     }
 
-    private void OnWebSocketStateChanged(WebSocketConnectionState state, int attempt, string error)
+    private void OnWebSocketStateChanged(long version, long generation, WebSocketConnectionState state, int attempt, string error)
     {
         _dispatcher.TryEnqueue(() =>
         {
+            lock (_sampleGate) if (version != _subscriptionVersion || generation != SingBoxService.Instance.RunGeneration) return;
             Traffic.SetConnectionState(state);
             ReconnectAttempt = attempt;
             LastError = error;
@@ -316,7 +330,8 @@ public class ConnectionViewModel : INotifyPropertyChanged
 
     private void SyncConnections(List<ConnectionInfo> newList)
     {
-        var newMap = newList.ToDictionary(c => c.Id);
+        var newMap = newList.GroupBy(c => c.Id).ToDictionary(group => group.Key, group => group.First());
+        var existingMap = Connections.GroupBy(c => c.Id).ToDictionary(group => group.Key, group => group.First());
         bool changed = false;
 
         // 移除不再存在的连接
@@ -332,7 +347,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
         // 更新现有连接或添加新连接
         foreach (var kvp in newMap)
         {
-            var existing = Connections.FirstOrDefault(c => c.Id == kvp.Key);
+            existingMap.TryGetValue(kvp.Key, out var existing);
             if (existing != null)
             {
                 if (existing.UpdateFrom(kvp.Value))   // 返回值表示是否实际变化
@@ -352,23 +367,7 @@ public class ConnectionViewModel : INotifyPropertyChanged
 
     private void ApplyFilter()
     {
-        // 计算期望的过滤结果（此时已在 UI 线程）
-        IEnumerable<ConnectionInfo> desired = string.IsNullOrWhiteSpace(SearchText)
-            ? Connections
-            : Connections.Where(c =>
-                (c.Host?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (c.Network?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (c.Rule?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (c.Source?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (c.Destination?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false));
-
-        desired = SortMode switch
-        {
-            "host" => desired.OrderBy(c => c.PrimaryDisplay, StringComparer.OrdinalIgnoreCase),
-            "upload" => desired.OrderByDescending(c => c.UploadBytes),
-            "download" => desired.OrderByDescending(c => c.DownloadBytes),
-            _ => desired.OrderByDescending(c => c.StartTime)
-        };
+        var desired = ConnectionPresentation.Select(Connections, SearchText, SortMode).ToList();
 
         // 比较当前 FilteredConnections 与 desired，如果完全一致则跳过
         if (FilteredConnections.SequenceEqual(desired))
@@ -381,6 +380,17 @@ public class ConnectionViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    private bool TrySavePreference(string key, string value, string property)
+    {
+        try { AppSettings.Set(key, value); return true; }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            LastError = "设置保存失败：" + ex.Message;
+            OnPropertyChanged(property);
+            return false;
+        }
+    }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {

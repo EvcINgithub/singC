@@ -76,6 +76,8 @@ public sealed partial class ConnectionsPage : Page
 
     private async void ConnectionDetailsButton_Click(object sender, RoutedEventArgs e)
     {
+        try
+        {
         var connection = SelectedConnection;
         if (connection == null) return;
 
@@ -105,5 +107,8 @@ public sealed partial class ConnectionsPage : Page
             package.SetText(detailsBox.Text);
             Clipboard.SetContent(package);
         }
+            }
+        catch (Exception ex) { await singC.Helpers.UiError.ShowAsync(XamlRoot, "显示连接详情", ex); }
     }
+
 }

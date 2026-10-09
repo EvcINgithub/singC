@@ -17,41 +17,29 @@ public sealed record OutboundTrafficRow(string Tag, TrafficTotals Totals)
 public sealed record OutboundTrafficSnapshot(IReadOnlyList<OutboundTrafficRow> Rows, string StorageError);
 
 // Connection snapshots are a lower-bound estimate, independent of the core's total counters.
-public sealed class OutboundTrafficStatistics
+public sealed class OutboundTrafficStatistics : IDisposable
 {
     private readonly object _gate = new();
-    private readonly string _path;
+    private readonly StatisticsFileStore<Dictionary<string, Dictionary<string, TrafficTotals>>> _store;
     private Dictionary<string, Dictionary<string, TrafficTotals>> _days = new();
     private readonly Dictionary<string, TrafficTotals> _session = new(StringComparer.Ordinal);
     private Dictionary<(string Id, DateTimeOffset Start), ConnectionTrafficSample> _previous = new();
     private DateTimeOffset? _lastFrame;
     private bool _dirty;
-    private bool _canSave = true;
-    private double _lastSaveSeconds = double.NegativeInfinity;
-    private string _storageError = string.Empty;
 
     public OutboundTrafficStatistics(string path)
     {
-        _path = path;
-        try
-        {
-            if (!File.Exists(path)) return;
-            var days = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, TrafficTotals>>>(File.ReadAllText(path))
-                ?? throw new InvalidDataException("统计文件为空");
+        _store = new(path);
+        _days = _store.Load(ValidateHistory);
+    }
+
+    private static bool ValidateHistory(Dictionary<string, Dictionary<string, TrafficTotals>> days)
+    {
             foreach (var day in days)
-            {
                 if (!DateOnly.TryParseExact(day.Key, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)
                     || day.Value == null || day.Value.Any(item => item.Value == null
-                        || item.Value.UploadBytes < 0 || item.Value.DownloadBytes < 0))
-                    throw new InvalidDataException("统计文件格式无效");
-            }
-            _days = days;
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
-        {
-            _canSave = false;
-            _storageError = "出站历史读取失败，本次分类数据暂不保存：" + ex.Message;
-        }
+                        || item.Value.UploadBytes < 0 || item.Value.DownloadBytes < 0)) return false;
+            return true;
     }
 
     public void BeginSession()
@@ -122,34 +110,22 @@ public sealed class OutboundTrafficStatistics
                 }
             return new(totals.Select(item => new OutboundTrafficRow(item.Key, item.Value))
                 .OrderByDescending(row => (decimal)row.Totals.UploadBytes + row.Totals.DownloadBytes)
-                .ThenBy(row => row.Tag, StringComparer.Ordinal).ToArray(), _storageError);
+                .ThenBy(row => row.Tag, StringComparer.Ordinal).ToArray(), _store.Error);
         }
     }
 
     public void Save(bool force = false)
     {
         lock (_gate)
+            if (_dirty && _store.TrySave(_days, force)) _dirty = false;
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
         {
-            double seconds = TrafficStatistics.MonotonicSeconds;
-            if (!_canSave || !_dirty || (!force && seconds - _lastSaveSeconds < 15)) return;
-            _lastSaveSeconds = seconds;
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
-                string temporary = _path + ".tmp";
-                using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    JsonSerializer.Serialize(stream, _days);
-                    stream.Flush(flushToDisk: true);
-                }
-                File.Move(temporary, _path, overwrite: true);
-                _dirty = false;
-                _storageError = string.Empty;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                _storageError = "出站统计保存失败，将自动重试：" + ex.Message;
-            }
+            Save(force: true);
+            _store.Dispose();
         }
     }
 

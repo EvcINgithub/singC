@@ -11,6 +11,7 @@
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Page.Resources>
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
         <converters:BoolToStringConverter x:Key="BoolToStringConverter"/>
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
     </Page.Resources>
@@ -31,11 +32,13 @@
                 <TextBlock Text="设置" Style="{StaticResource TitleTextBlockStyle}"/>
                 <TextBlock Text="管理运行路径、配置文件和路由规则"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="{x:Bind ViewModel.StorageError}" TextWrapping="Wrap"
+                           Visibility="{x:Bind ViewModel.StorageError, Converter={StaticResource StringToVisibilityConverter}}"/>
             </StackPanel>
 
         </Grid>
 
-        <ScrollViewer Grid.Row="1"
+        <ScrollViewer Grid.Row="1" IsEnabled="{x:Bind ViewModel.CanChangeConfig, Mode=OneWay}"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel Spacing="14">

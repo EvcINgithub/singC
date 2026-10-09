@@ -49,8 +49,9 @@ and checks the result using the configured sing-box executable. See also the
 
 Open **流量统计** to view upload/download speeds, usage for the current sing-box
 run, today, this month, all recorded time, and the last seven days. Collection
-continues when switching pages. Enable sing-box's Clash API on `127.0.0.1:9090`
-without a secret, as required by the existing Connections page.
+continues when switching pages. Enable sing-box's Clash API in the configuration.
+Collection uses the controller address and optional secret from the running
+configuration, including custom ports. Connection snapshots are limited to 16 MiB.
 
 Statistics use the API's cumulative upload/download counters, including closed
 connections, direct traffic and proxy traffic. They are not provider billing

@@ -30,10 +30,10 @@ public sealed record TrafficStatisticsSnapshot(TrafficTotals Session, TrafficTot
 
 // Counter deltas, rather than the active connection list, retain closed-connection traffic.
 // All mutations and persistence are serialized because samples arrive on the socket thread.
-public sealed class TrafficStatistics
+public sealed class TrafficStatistics : IDisposable
 {
     private readonly object _gate = new();
-    private readonly string _path;
+    private readonly StatisticsFileStore<Dictionary<string, TrafficTotals>> _store;
     private Dictionary<string, TrafficTotals> _days = new();
     private TrafficTotals _session = new();
     private long _previousUpload;
@@ -42,34 +42,21 @@ public sealed class TrafficStatistics
     private double _uploadSpeed;
     private double _downloadSpeed;
     private DateTimeOffset? _lastSample;
-    private double _lastSaveSeconds = double.NegativeInfinity;
     private bool _dirty;
-    private bool _canSave = true;
-    private string _storageError = string.Empty;
 
     public TrafficStatistics(string path)
     {
-        _path = path;
-        try
-        {
-            if (!File.Exists(path)) return;
-            var days = JsonSerializer.Deserialize<Dictionary<string, TrafficTotals>>(File.ReadAllText(path))
-                ?? throw new InvalidDataException("统计文件为空");
+        _store = new(path);
+        _days = _store.Load(ValidateHistory);
+    }
+
+    private static bool ValidateHistory(Dictionary<string, TrafficTotals> days)
+    {
             foreach (var day in days)
-            {
                 if (!DateOnly.TryParseExact(day.Key, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
                         System.Globalization.DateTimeStyles.None, out _)
-                    || day.Value == null || day.Value.UploadBytes < 0 || day.Value.DownloadBytes < 0)
-                    throw new InvalidDataException("统计文件格式无效");
-            }
-            _days = days;
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
-        {
-            // Preserve an unreadable file for recovery rather than replacing historical usage.
-            _canSave = false;
-            _storageError = $"历史统计读取失败，本次数据暂不保存：{ex.Message}";
-        }
+                    || day.Value == null || day.Value.UploadBytes < 0 || day.Value.DownloadBytes < 0) return false;
+            return true;
     }
 
     public static double MonotonicSeconds => (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency;
@@ -141,34 +128,22 @@ public sealed class TrafficStatistics
             }).ToArray();
             bool fresh = _previousSeconds.HasValue && seconds - _previousSeconds.Value <= 5;
             return new(_session, _days.GetValueOrDefault(date) ?? new(), monthly, all,
-                fresh ? _uploadSpeed : 0, fresh ? _downloadSpeed : 0, _lastSample, recent, _storageError);
+                fresh ? _uploadSpeed : 0, fresh ? _downloadSpeed : 0, _lastSample, recent, _store.Error);
         }
     }
 
     public void Save(bool force = false)
     {
         lock (_gate)
+            if (_dirty && _store.TrySave(_days, force)) _dirty = false;
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
         {
-            double seconds = MonotonicSeconds;
-            if (!_canSave || !_dirty || (!force && seconds - _lastSaveSeconds < 15)) return;
-            _lastSaveSeconds = seconds;
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
-                string temporary = _path + ".tmp";
-                using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    JsonSerializer.Serialize(stream, _days);
-                    stream.Flush(flushToDisk: true);
-                }
-                File.Move(temporary, _path, overwrite: true);
-                _dirty = false;
-                _storageError = string.Empty;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                _storageError = $"统计保存失败，将自动重试：{ex.Message}";
-            }
+            Save(force: true);
+            _store.Dispose();
         }
     }
 

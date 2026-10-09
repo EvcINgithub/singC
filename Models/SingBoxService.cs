@@ -1,4 +1,4 @@
-﻿// Models/SingBoxService.cs
+// Models/SingBoxService.cs
 using singC.Helpers;
 using System;
 using System.Diagnostics;
@@ -58,8 +58,8 @@ namespace singC.Models
         private readonly object _stateLock = new();
         private Process? _process;
         private SingBoxRuntimeState _state = SingBoxRuntimeState.Stopped;
-        private bool _isSwitching;
-        private bool _shutdownRequested;
+        private volatile bool _isSwitching;
+        private volatile bool _shutdownRequested;
         private long _runGeneration;
         private LaunchPlan? _activePlan;
         private readonly SystemProxyLease _systemProxy;
@@ -67,6 +67,7 @@ namespace singC.Models
         private readonly Func<string?> _getConfig;
         private readonly Action<ProxyMode, int> _saveMode;
         private readonly Func<bool> _canUseTun;
+        private readonly Func<ProcessStartInfo, TimeSpan, CancellationToken, Task<ConfigCheckOutput>> _checkRunner;
         private readonly string _runtimeDirectory;
         private ProxyMode _preferredMode;
         private int _proxyPort = 7890;
@@ -76,6 +77,15 @@ namespace singC.Models
         public int ProxyPort => _proxyPort;
         public ProxyMode? ActiveMode => _activePlan?.Mode;
         public long RunGeneration => Interlocked.Read(ref _runGeneration);
+        public ClashApiEndpoint GetActiveClashApiEndpoint()
+        {
+            lock (_stateLock)
+            {
+                if (_state != SingBoxRuntimeState.Running || _activePlan == null)
+                    throw new InvalidOperationException("sing-box 尚未运行。");
+                return ClashApiEndpoint.FromConfig(_activePlan.Config.Json);
+            }
+        }
         private string _lastError = string.Empty;
         private int? _lastExitCode;
 
@@ -114,12 +124,14 @@ namespace singC.Models
         }
 
         internal SingBoxService(Func<string?> getExecutable, Func<string?> getConfig, Action<ProxyMode, int> saveMode,
-            ISystemProxyBackend proxyBackend, string dataDirectory, Func<bool> canUseTun)
+            ISystemProxyBackend proxyBackend, string dataDirectory, Func<bool> canUseTun,
+            Func<ProcessStartInfo, TimeSpan, CancellationToken, Task<ConfigCheckOutput>>? checkRunner = null)
         {
             _getExecutable = getExecutable;
             _getConfig = getConfig;
             _saveMode = saveMode;
             _canUseTun = canUseTun;
+            _checkRunner = checkRunner ?? ConfigCheckRunner.RunAsync;
             _runtimeDirectory = Path.Combine(dataDirectory, "runtime");
             _systemProxy = new(proxyBackend, Path.Combine(dataDirectory, "system-proxy-backup.json"));
             try { _systemProxy.Recover(); }
@@ -139,6 +151,7 @@ namespace singC.Models
             LaunchPlan? plan = null;
             try
             {
+                if (_shutdownRequested) throw new InvalidOperationException("应用正在退出。");
                 if (IsRunning) return;
                 if (_process != null) throw new InvalidOperationException("请先停止尚未退出的 sing-box 进程。");
                 SetState(SingBoxRuntimeState.Starting);
@@ -346,19 +359,26 @@ namespace singC.Models
                 process.Dispose();
             }
             try { _systemProxy.Restore(); }
+            catch (Exception ex)
+            {
+                SetLastError("恢复系统代理失败：" + ex.Message, null);
+                SetState(SingBoxRuntimeState.Failed);
+                throw;
+            }
             finally
             {
                 if (!keepRuntime) DeleteRuntime(plan);
-                SetState(SingBoxRuntimeState.Stopped);
             }
+            SetState(SingBoxRuntimeState.Stopped);
         }
 
         public void PrepareForExit()
         {
             _shutdownRequested = true;
-            try { _systemProxy.Restore(); }
-            catch (Exception ex) { Debug.WriteLine("系统代理将在下次启动时恢复：" + ex.Message); }
+            // StopAsync restores the lease under the operation gate after any pending start.
         }
+
+        internal void CancelExit() => _shutdownRequested = false;
 
         private static void DeleteRuntime(LaunchPlan? plan)
         {
@@ -427,7 +447,6 @@ namespace singC.Models
             }
 
             string? temporaryPath = null;
-            Process? process = null;
             try
             {
                 string checkPath = targetPath;
@@ -451,34 +470,18 @@ namespace singC.Models
                 startInfo.ArgumentList.Add("check");
                 startInfo.ArgumentList.Add("-c");
                 startInfo.ArgumentList.Add(checkPath);
-                process = new Process { StartInfo = startInfo };
-                if (!process.Start())
-                    return ConfigValidationResult.Failure("启动", "无法启动 sing-box 进行配置校验。");
-
-                Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
-                try
-                {
-                    await process.WaitForExitAsync(timeoutCts.Token);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    TryKill(process);
-                    return ConfigValidationResult.Failure("超时", "配置校验超过 15 秒未完成。");
-                }
-
-                string output = await outputTask;
-                string error = await errorTask;
-                string detail = Trim(string.IsNullOrWhiteSpace(error) ? output : error, 1200);
-                return process.ExitCode == 0
+                var result = await _checkRunner(startInfo, TimeSpan.FromSeconds(15), cancellationToken);
+                string detail = Trim(string.IsNullOrWhiteSpace(result.Error) ? result.Output : result.Error, 1200);
+                return result.ExitCode == 0
                     ? ConfigValidationResult.Success("配置校验成功。", detail)
-                    : ConfigValidationResult.Failure("sing-box", "配置校验失败。", detail, process.ExitCode);
+                    : ConfigValidationResult.Failure("sing-box", "配置校验失败。", detail, result.ExitCode);
+            }
+            catch (TimeoutException)
+            {
+                return ConfigValidationResult.Failure("超时", "配置校验超过 15 秒未完成。");
             }
             catch (OperationCanceledException)
             {
-                if (process != null) TryKill(process);
                 return ConfigValidationResult.Failure("取消", "配置校验已取消。");
             }
             catch (Exception ex)
@@ -487,7 +490,6 @@ namespace singC.Models
             }
             finally
             {
-                process?.Dispose();
                 if (temporaryPath != null)
                 {
                     try { File.Delete(temporaryPath); } catch { }

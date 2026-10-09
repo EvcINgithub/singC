@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -58,7 +58,7 @@ namespace singC.Models
         public string? Source
         {
             get => _source;
-            set { _source = value; OnPropertyChanged(); OnPropertyChanged(nameof(AddressDisplay)); }
+            set { _source = value; OnPropertyChanged(); OnPropertyChanged(nameof(AddressDisplay)); OnPropertyChanged(nameof(SecondaryDisplay)); }
         }
 
         private string? _destination;

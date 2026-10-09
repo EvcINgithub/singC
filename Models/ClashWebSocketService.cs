@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -129,115 +129,59 @@ namespace singC.Models
                 SetConnectionState(WebSocketConnectionState.Failed);
         }
 
-        private async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        internal const int MaximumMessageBytes = 16 * 1024 * 1024;
+        internal static async Task<byte[]?> ReadMessageAsync(WebSocket socket, CancellationToken token)
         {
             var buffer = new byte[8192];
-            while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            using var message = new MemoryStream();
+            WebSocketReceiveResult result;
+            do
             {
-                using var message = new MemoryStream();
-                WebSocketReceiveResult result;
-                do
-                {
-                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
-                    if (result.MessageType == WebSocketMessageType.Close)
-                        return;
-                    message.Write(buffer, 0, result.Count);
-                } while (!result.EndOfMessage);
+                result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                if (result.MessageType == WebSocketMessageType.Close) return null;
+                if (result.MessageType != WebSocketMessageType.Text) throw new InvalidDataException("Clash API 返回非文本消息。");
+                if (message.Length + result.Count > MaximumMessageBytes)
+                    throw new InvalidDataException("Clash API 连接快照超过 16 MiB 上限。");
+                message.Write(buffer, 0, result.Count);
+            } while (!result.EndOfMessage);
+            return message.ToArray();
+        }
 
-                if (result.MessageType == WebSocketMessageType.Text)
-                    ProcessMessage(message.ToArray());
+        private async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken token)
+        {
+            while (socket.State == WebSocketState.Open && !token.IsCancellationRequested)
+            {
+                byte[]? message = await ReadMessageAsync(socket, token);
+                if (message == null) return;
+                ProcessMessage(message);
             }
         }
 
         internal void ProcessMessage(ReadOnlyMemory<byte> message)
         {
-            using var doc = JsonDocument.Parse(message);
-            var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object) return;
-            if (root.TryGetProperty("uploadTotal", out var upload) && upload.ValueKind == JsonValueKind.Number
-                && upload.TryGetInt64(out long up) && up >= 0
-                && root.TryGetProperty("downloadTotal", out var download) && download.ValueKind == JsonValueKind.Number
-                && download.TryGetInt64(out long down) && down >= 0)
-                OnTrafficTotalsReceived?.Invoke(up, down);
-
-            if (root.TryGetProperty("connections", out var arr))
-            {
-                if (arr.ValueKind is JsonValueKind.Array or JsonValueKind.Null)
-                    OnConnectionTrafficReceived?.Invoke(ParseConnectionTraffic(arr));
-                OnConnectionsReceived?.Invoke(arr.ValueKind == JsonValueKind.Array ? ParseConnections(arr) : new());
-            }
+            ClashConnectionSnapshot snapshot;
+            try { snapshot = ClashConnectionSnapshot.Parse(message); }
+            catch (JsonException) { LastError = "Clash API 返回无效 JSON，已跳过该快照。"; return; }
+            // Fully parse before notifying consumers: bad rows cannot leave half a frame applied.
+            if (snapshot.Upload is { } upload && snapshot.Download is { } download)
+                OnTrafficTotalsReceived?.Invoke(upload, download);
+            if (snapshot.Samples != null) OnConnectionTrafficReceived?.Invoke(snapshot.Samples);
+            if (snapshot.Connections != null) OnConnectionsReceived?.Invoke(snapshot.Connections);
         }
 
-        internal static string? ReadOutboundTag(JsonElement item)
-        {
-            if (!item.TryGetProperty("chains", out var chains) || chains.ValueKind != JsonValueKind.Array
-                || chains.GetArrayLength() == 0) return null;
-            var last = chains[chains.GetArrayLength() - 1];
-            return last.ValueKind == JsonValueKind.String ? last.GetString() : null;
-        }
-
-        private static IReadOnlyList<ConnectionTrafficSample> ParseConnectionTraffic(JsonElement array)
-        {
-            var samples = new List<ConnectionTrafficSample>();
-            if (array.ValueKind != JsonValueKind.Array) return samples;
-            foreach (var item in array.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Object
-                    || !item.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String
-                    || !item.TryGetProperty("start", out var start) || start.ValueKind != JsonValueKind.String
-                    || !start.TryGetDateTimeOffset(out var startedAt)
-                    || !item.TryGetProperty("upload", out var up) || up.ValueKind != JsonValueKind.Number || !up.TryGetInt64(out long upload) || upload < 0
-                    || !item.TryGetProperty("download", out var down) || down.ValueKind != JsonValueKind.Number || !down.TryGetInt64(out long download) || download < 0)
-                    continue;
-                samples.Add(new(id.GetString() ?? "", startedAt, ReadOutboundTag(item), upload, download));
-            }
-            return samples;
-        }
-
-        private List<ConnectionInfo> ParseConnections(JsonElement connArray)
-        {
-            var list = new List<ConnectionInfo>();
-            foreach (var item in connArray.EnumerateArray())
-            {
-                var metadata = item.GetProperty("metadata");
-                var info = new ConnectionInfo
-                {
-                    Id = item.GetProperty("id").GetString() ?? "",
-                    Network = metadata.GetProperty("network").GetString() ?? "",
-                    Source = $"{metadata.GetProperty("sourceIP").GetString()}:{metadata.GetProperty("sourcePort").GetString()}",
-                    Destination = $"{metadata.GetProperty("destinationIP").GetString()}:{metadata.GetProperty("destinationPort").GetString()}",
-                    Host = metadata.TryGetProperty("host", out var hostElem) ? hostElem.GetString() ?? "" : "",
-                    StartTime = DateTime.Parse(item.GetProperty("start").GetString()!),
-                    UploadBytes = item.GetProperty("upload").GetInt64(),
-                    DownloadBytes = item.GetProperty("download").GetInt64(),
-                    Rule = item.GetProperty("rule").GetString()?? "",
-                    OutboundTag = ReadOutboundTag(item),
-                };
-
-                // 也可尝试解析 Rule 等额外字段
-                list.Add(info);
-            }
-            return list;
-        }
+        internal static string? ReadOutboundTag(JsonElement item) => ClashConnectionSnapshot.ReadOutboundTag(item);
 
         // 停止 WebSocket，释放资源
         public async Task StopAsync()
         {
             _cts?.Cancel();
-            var socket = _webSocket;
-            if (socket?.State == WebSocketState.Open)
-            {
-                try
-                {
-                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                }
-                catch { }
-            }
-
+            // Abort interrupts pending receive and close handshakes without waiting on the peer.
+            _webSocket?.Abort();
             if (_runTask != null)
             {
                 try { await _runTask.WaitAsync(TimeSpan.FromSeconds(3)); }
-                catch { }
+                catch (OperationCanceledException) { }
+                catch (TimeoutException) { }
             }
             _runTask = null;
             _webSocket = null;
@@ -250,15 +194,17 @@ namespace singC.Models
             try { ConnectionStateChanged?.Invoke(state, ReconnectAttempt, LastError); }
             catch { }
         }
-        public static async Task<TrafficData?> FetchTrafficDataAsync()
+        public static Task<TrafficData?> FetchTrafficDataAsync() => FetchTrafficDataAsync(_httpClient,
+            singC.Helpers.AppSettings.Get(singC.Helpers.AppSettings.TrafficServiceUrlKey));
+
+        internal static async Task<TrafficData?> FetchTrafficDataAsync(HttpClient client, string? trafficDataUrl)
         {
-            var trafficDataUrl = singC.Helpers.AppSettings.Get(singC.Helpers.AppSettings.TrafficServiceUrlKey);
             if (!singC.Helpers.AppSettings.IsServiceUrl(trafficDataUrl))
                 return null;
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                using HttpResponseMessage response = await _httpClient.GetAsync(trafficDataUrl, timeout.Token);
+                using HttpResponseMessage response = await client.GetAsync(trafficDataUrl, timeout.Token);
                 if (response.StatusCode != System.Net.HttpStatusCode.ServiceUnavailable)
                     response.EnsureSuccessStatusCode();
 
@@ -285,5 +231,5 @@ namespace singC.Models
     }
 
     // 保留原有的数据模型类，无需改动
-    
+
 }

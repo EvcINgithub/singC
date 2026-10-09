@@ -55,10 +55,14 @@ public sealed class SystemProxyLease(ISystemProxyBackend backend, string path)
             JsonSerializer.Serialize(stream, new Journal(original, applied));
             stream.Flush(flushToDisk: true);
             try { backend.Write(applied); }
-            catch
+            catch (Exception applyError)
             {
                 // A partially applied native write also needs rollback.
-                backend.Write(original);
+                try { backend.Write(original); }
+                catch (Exception restoreError)
+                {
+                    throw new AggregateException("设置系统代理失败，恢复原设置也失败；已保留恢复记录。", applyError, restoreError);
+                }
                 stream.SetLength(0);
                 stream.Flush(flushToDisk: true);
                 throw;
@@ -77,7 +81,7 @@ public sealed class SystemProxyLease(ISystemProxyBackend backend, string path)
     {
         var stream = _stream;
         _stream = null;
-        if (stream == null) return;
+        if (stream == null) { RecoverCore(); return; }
         using (stream) RestoreJournal(stream);
     }
 

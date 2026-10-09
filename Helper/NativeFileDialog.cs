@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 
 namespace singC
@@ -8,69 +8,54 @@ namespace singC
         public static string? ShowOpenFileDialog(IntPtr hwndOwner, string filter, string? defaultFolder = null)
         {
             var dialog = (IFileOpenDialog)new FileOpenDialogRCW();
-
-            // 设置过滤器
-            string[] parts = filter.Split('|');
-            if (parts.Length == 2)
+            IShellItem? result = null;
+            try
             {
-                var spec = new COMDLG_FILTERSPEC
+                string[] parts = filter.Split('|');
+                if (parts.Length == 2)
+                    dialog.SetFileTypes(1, new[] { new COMDLG_FILTERSPEC { pszName = parts[0], pszSpec = parts[1] } });
+                dialog.SetOptions(FILEOPENDIALOGOPTIONS.FOS_FILEMUSTEXIST | FILEOPENDIALOGOPTIONS.FOS_FORCEFILESYSTEM);
+                if (!string.IsNullOrEmpty(defaultFolder))
                 {
-                    pszName = parts[0],
-                    pszSpec = parts[1]
-                };
-                dialog.SetFileTypes(1, new[] { spec });
-            }
-
-            // 选项
-            dialog.SetOptions(
-                FILEOPENDIALOGOPTIONS.FOS_FILEMUSTEXIST |
-                FILEOPENDIALOGOPTIONS.FOS_FORCEFILESYSTEM);
-
-            // 默认文件夹（可选）
-            if (!string.IsNullOrEmpty(defaultFolder))
-            {
-                try
-                {
-                    if (SHCreateItemFromParsingName(defaultFolder, IntPtr.Zero, typeof(IShellItem).GUID, out IntPtr psi) == 0)
+                    IntPtr pointer = IntPtr.Zero;
+                    IShellItem? folder = null;
+                    try
                     {
-                        dialog.SetDefaultFolder((IShellItem)Marshal.GetObjectForIUnknown(psi));
-                        Marshal.Release(psi);
+                        int hr = SHCreateItemFromParsingName(defaultFolder, IntPtr.Zero, typeof(IShellItem).GUID, out pointer);
+                        if (hr == 0)
+                        {
+                            folder = (IShellItem)Marshal.GetObjectForIUnknown(pointer);
+                            dialog.SetDefaultFolder(folder);
+                        }
+                    }
+                    finally
+                    {
+                        if (folder != null) Marshal.ReleaseComObject(folder);
+                        if (pointer != IntPtr.Zero) Marshal.Release(pointer);
                     }
                 }
-                catch { }
+                int status = dialog.Show(hwndOwner);
+                if (status == unchecked((int)0x800704C7)) return null; // user cancellation
+                Marshal.ThrowExceptionForHR(status);
+                dialog.GetResult(out result);
+                return result == null ? null : GetShellItemDisplayName(result);
             }
-
-            int hr = dialog.Show(hwndOwner);
-            if (hr != 0) return null;
-
-            dialog.GetResult(out IShellItem psiResult);
-            if (psiResult == null) return null;
-
-            string? path = GetShellItemDisplayName(psiResult);
-            Marshal.ReleaseComObject(psiResult);
-            return path;
+            finally
+            {
+                if (result != null) Marshal.ReleaseComObject(result);
+                Marshal.ReleaseComObject(dialog);
+            }
         }
 
         private static string? GetShellItemDisplayName(IShellItem shellItem)
         {
-            IntPtr pszName = IntPtr.Zero;
+            IntPtr name = IntPtr.Zero;
             try
             {
-                shellItem.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out pszName);
-                if (pszName != IntPtr.Zero)
-                {
-                    string? path = Marshal.PtrToStringUni(pszName);
-                    Marshal.FreeCoTaskMem(pszName);
-                    return path;
-                }
-                return null;
+                shellItem.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out name);
+                return name == IntPtr.Zero ? null : Marshal.PtrToStringUni(name);
             }
-            catch
-            {
-                if (pszName != IntPtr.Zero)
-                    Marshal.FreeCoTaskMem(pszName);
-                return null;
-            }
+            finally { if (name != IntPtr.Zero) Marshal.FreeCoTaskMem(name); }
         }
 
         // COM 类

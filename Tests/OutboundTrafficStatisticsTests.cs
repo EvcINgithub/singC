@@ -8,7 +8,7 @@ internal static class OutboundTrafficStatisticsTests
     {
         var time = new DateTimeOffset(2026, 9, 30, 23, 59, 55, TimeSpan.FromHours(8));
         string path = Path.Combine(directory, "outbounds.json");
-        var stats = new OutboundTrafficStatistics(path);
+        using var stats = new OutboundTrafficStatistics(path);
         ConnectionTrafficSample Sample(string id, string? tag, long up, long down, int start = -10)
             => new(id, time.AddSeconds(start), tag, up, down);
         OutboundTrafficSnapshot Snapshot(OutboundTrafficPeriod period = OutboundTrafficPeriod.Session, int second = 0)
@@ -46,7 +46,7 @@ internal static class OutboundTrafficStatisticsTests
         stats.Record([Sample("a", "proxy", 4, 6, 21)], time.AddSeconds(21));
         check(Totals("proxy") == new TrafficTotals(194, 316), "outbound: reused ID with new start time identifies a new connection");
         stats.Save(force: true);
-        var restored = new OutboundTrafficStatistics(path);
+        using var restored = new OutboundTrafficStatistics(path);
         check(restored.GetSnapshot(OutboundTrafficPeriod.AllTime, time).Rows.SequenceEqual(Snapshot().Rows)
             && restored.GetSnapshot(OutboundTrafficPeriod.Session, time).Rows.Count == 0,
             "outbound: persisted daily totals restore independently of session");
@@ -63,7 +63,7 @@ internal static class OutboundTrafficStatisticsTests
         stats.Record([Sample("fresh", "proxy", 10, 20, 31), Sample("rename", "renamed", 1, 1, 32)], time.AddSeconds(32));
         check(Totals("renamed") == new TrafficTotals(1, 1), "outbound: renamed tag creates a separate bucket");
 
-        var invalid = new OutboundTrafficStatistics(Path.Combine(directory, "invalid-samples.json"));
+        using var invalid = new OutboundTrafficStatistics(Path.Combine(directory, "invalid-samples.json"));
         invalid.Record([], time);
         invalid.Record([Sample("", "proxy", 1, 1, 1), Sample("negative", "proxy", -1, 1, 1),
             Sample("future", "proxy", 1, 1, 50), new("invalid-time", default, "proxy", 1, 1)], time.AddSeconds(1));
@@ -78,7 +78,7 @@ internal static class OutboundTrafficStatisticsTests
         {
             string damagedPath = Path.Combine(directory, "damaged.json");
             File.WriteAllText(damagedPath, bad);
-            var damaged = new OutboundTrafficStatistics(damagedPath);
+            using var damaged = new OutboundTrafficStatistics(damagedPath);
             damaged.Record([], time);
             damaged.Record([Sample("a", "proxy", 1, 2, 1)], time.AddSeconds(1));
             damaged.Save(force: true);
@@ -86,7 +86,7 @@ internal static class OutboundTrafficStatisticsTests
                 && File.ReadAllText(damagedPath) == bad, "outbound: unreadable history is preserved");
         }
         string blockedPath = Path.Combine(directory, "blocked");
-        var blocked = new OutboundTrafficStatistics(blockedPath);
+        using var blocked = new OutboundTrafficStatistics(blockedPath);
         blocked.Record([], time);
         blocked.Record([Sample("a", "proxy", 1, 2, 1)], time.AddSeconds(1));
         Directory.CreateDirectory(blockedPath);

@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
@@ -51,7 +51,7 @@ namespace singC
             AppSettings.Init();
             ConnectionViewModel.Initialize(DispatcherQueue.GetForCurrentThread());
             window = new MainWindow();
-            window.Closed += OnMainWindowClosed;
+            window.AppWindow.Closing += OnMainWindowClosing;
             window.Activate();
             window.DispatcherQueue.TryEnqueue(InitializeBackgroundOnUiThread);
             AppUpdateService.Instance.Start(window.DispatcherQueue);
@@ -88,17 +88,33 @@ namespace singC
             }
         }
 
-        private async void OnMainWindowClosed(object sender, WindowEventArgs args)
+        private bool _closing;
+        private bool _allowClose;
+        private async void OnMainWindowClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
         {
+            if (_allowClose) return;
+            args.Cancel = true;
+            if (_closing) return;
+            _closing = true;
             SingBoxService.Instance.PrepareForExit();
-            // Flush before the window dispatcher shuts down; the close event cannot be awaited.
-            ConnectionViewModel.Instance.Traffic.Save();
-            // 应用关闭时，停止 sing-box 进程
-            if (SingBoxService.Instance.State != SingBoxRuntimeState.Stopped)
+            try
             {
-                await SingBoxService.Instance.StopAsync();
+                await ShutdownSequence.RunAsync(() => SingBoxService.Instance.StopAsync(),
+                    ConnectionViewModel.Instance.Traffic.Save, ConnectionViewModel.Instance.ShutdownAsync);
+                _allowClose = true;
+                window.Close();
             }
-            await ConnectionViewModel.Instance.ShutdownAsync();
+            catch (Exception ex)
+            {
+                SingBoxService.Instance.CancelExit();
+                Debug.WriteLine("退出未完成，请重试关闭：" + ex.Message);
+                if (window.Content is FrameworkElement root)
+                {
+                    try { await new ContentDialog { XamlRoot = root.XamlRoot, Title = "退出未完成", Content = ex.Message, CloseButtonText = "返回" }.ShowAsync(); }
+                    catch (Exception dialogError) { Debug.WriteLine(dialogError); }
+                }
+            }
+            finally { _closing = false; }
         }
     }
 }

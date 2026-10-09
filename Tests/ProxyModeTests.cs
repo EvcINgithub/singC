@@ -52,6 +52,12 @@ internal static class ProxyModeTests
 
     public static async Task RunAsync(string root, Action<bool, string> check)
     {
+        RunPure(root, check);
+        await RunLifecycleAsync(root, check);
+    }
+
+    public static void RunPure(string root, Action<bool, string> check)
+    {
         var proxy = ProxyModeConfig.Build(TunConfig, ProxyMode.SystemProxy, 18790);
         var converted = JsonNode.Parse(proxy.Json)!;
         check(!proxy.HasTun && proxy.ProxyPort == 18790 && proxy.ProxyHost == "127.0.0.1",
@@ -121,6 +127,12 @@ internal static class ProxyModeTests
         try { lease.Apply("127.0.0.1", 7890); throw new Exception("Expected write failure"); }
         catch (IOException) { check(backend.Current == original, "mode: partial system proxy write rolls back"); }
 
+    }
+
+    public static async Task RunLifecycleAsync(string root, Action<bool, string> check)
+    {
+        var backend = new ProxyBackend();
+        var original = backend.Current;
         if (!OperatingSystem.IsWindows()) return;
         // Read-only native smoke check; lifecycle tests below use the fake backend.
         var actualSettings = new WindowsSystemProxy().Read();
@@ -129,6 +141,15 @@ internal static class ProxyModeTests
         string fixtureExe = Environment.ProcessPath ?? throw new Exception("Missing test apphost");
         string source = Path.Combine(root, "config.json");
         File.WriteAllText(source, TunConfig);
+        var hangingCheck = new ProcessStartInfo(fixtureExe) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        hangingCheck.ArgumentList.Add("run"); hangingCheck.ArgumentList.Add("-c"); hangingCheck.ArgumentList.Add(source);
+        try { await ConfigCheckRunner.RunAsync(hangingCheck, TimeSpan.FromMilliseconds(150), default); throw new Exception("Expected deadline"); }
+        catch (TimeoutException) { check(true, "core check deadline kills hanging fixture"); }
+        using (var cancel = new CancellationTokenSource(150))
+        {
+            try { await ConfigCheckRunner.RunAsync(hangingCheck, TimeSpan.FromSeconds(15), cancel.Token); throw new Exception("Expected cancellation"); }
+            catch (OperationCanceledException) { check(true, "core check cancellation kills hanging fixture"); }
+        }
         bool admin = true, failSave = false;
         int saves = 0;
         backend.Current = original;
@@ -170,6 +191,9 @@ internal static class ProxyModeTests
             admin = true;
             await service.SwitchModeAsync(ProxyMode.Tun, service.ProxyPort);
             check(service.ActiveMode == ProxyMode.Tun && backend.Current.Flags == 1, "mode: live proxy-to-TUN switch clears the temporary proxy");
+            backend.FailNextWrite = true;
+            try { await service.StopAsync(); throw new Exception("Expected proxy restoration failure"); }
+            catch (IOException) { check(service.State == SingBoxRuntimeState.Failed && service.LastError.Contains("恢复"), "mode: failed restoration is never reported as stopped"); }
             await service.StopAsync();
             check(backend.Current == original && !service.IsRunning, "mode: stopping the core restores Windows settings");
             check(!Directory.EnumerateFiles(Path.Combine(root, "runtime-test", "runtime")).Any(), "mode: temporary runtime configurations are cleaned up");
@@ -186,6 +210,7 @@ internal static class ProxyModeTests
         string? realCore = Environment.GetEnvironmentVariable("SINGC_TEST_CORE_PATH");
         if (!string.IsNullOrWhiteSpace(realCore))
         {
+            var proxy = ProxyModeConfig.Build(TunConfig, ProxyMode.SystemProxy, 18790);
             var coreCases = Enum.GetValues<ProxyMode>().Select(mode => (Name: mode.ToString(), Config: ProxyModeConfig.Build(TunConfig, mode)))
                 .Append((Name: "GeneratedTun", Config: ProxyModeConfig.Build(proxy.Json, ProxyMode.Tun)));
             foreach (var coreCase in coreCases)

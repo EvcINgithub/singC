@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using singC.Helpers;
 using singC.Models;
 using System;
@@ -27,6 +27,16 @@ namespace singC.ViewModels
         private string _finalOutbound = "remote";
         private bool _isLoadingConfig;
         private bool _hasUnsavedChanges;
+        private readonly ConfigLoadCoordinator _loads = new();
+        private long _editGeneration;
+        private bool _configBusy;
+        public bool CanChangeConfig => !_configBusy;
+        public string StorageError => AppSettings.StorageError;
+        private void SetConfigBusy(bool value)
+        {
+            _configBusy = value;
+            OnPropertyChanged(nameof(CanChangeConfig));
+        }
 
         public string FinalOutbound
         {
@@ -76,9 +86,9 @@ namespace singC.ViewModels
             get => _singBoxPath;
             set
             {
+                if (!TrySaveSetting(AppSettings.PathKey.SingBoxPathKey, value, nameof(SingBoxPath))) return;
                 _singBoxPath = value;
                 OnPropertyChanged();
-                AppSettings.Set(AppSettings.PathKey.SingBoxPathKey, value);
             }
         }
 
@@ -90,14 +100,15 @@ namespace singC.ViewModels
             {
                 if (_configPath == value) return;
 
-                _configPath = value;
-                OnPropertyChanged();
                 AppSettings.Set(AppSettings.PathKey.ConfigPathKey, value);
+                _configPath = value;
+                _loads.Invalidate();
+                OnPropertyChanged();
                 AddConfigPath(value, select: false);
                 RefreshBackups();
 
-                if (SelectedConfigPath != value)
-                    SelectedConfigPath = value;
+                _selectedConfigPath = value;
+                OnPropertyChanged(nameof(SelectedConfigPath));
             }
         }
 
@@ -109,17 +120,34 @@ namespace singC.ViewModels
             {
                 if (_selectedConfigPath == value) return;
 
-                _selectedConfigPath = value;
-                OnPropertyChanged();
-
                 if (!_isChangingConfigSelection && !string.IsNullOrWhiteSpace(value))
-                {
-                    _isChangingConfigSelection = true;
-                    ConfigPath = value;
-                    _isChangingConfigSelection = false;
-                    _ = LoadConfigAsync();
-                }
+                    _ = SelectConfigAsync(value);
             }
+        }
+
+        private async Task<bool> ConfirmDiscardAsync()
+        {
+            if (!HasUnsavedChanges) return true;
+            var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
+            {
+                Title = "尚有未保存的修改", Content = "放弃当前修改并切换配置？",
+                PrimaryButtonText = "放弃并切换", CloseButtonText = "取消",
+                DefaultButton = Microsoft.UI.Xaml.Controls.ContentDialogButton.Close,
+                XamlRoot = (_window.Content as FrameworkElement)?.XamlRoot
+            };
+            return await dialog.ShowAsync() == Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary;
+        }
+
+        private async Task SelectConfigAsync(string path)
+        {
+            if (_configBusy) { OnPropertyChanged(nameof(SelectedConfigPath)); return; }
+            SetConfigBusy(true);
+            try
+            {
+                if (await ConfirmDiscardAsync()) { ConfigPath = path; await LoadConfigAsync(); }
+            }
+            catch (Exception ex) { StatusMessage = "切换失败：" + ex.Message; }
+            finally { SetConfigBusy(false); OnPropertyChanged(nameof(SelectedConfigPath)); }
         }
 
         private string _backgroundImagePath = string.Empty;
@@ -129,9 +157,9 @@ namespace singC.ViewModels
             get => _backgroundImagePath;
             set
             {
+                if (!TrySaveSetting(AppSettings.PathKey.BackgroundImagePathKey, value, nameof(BackgroundImagePath))) return;
                 _backgroundImagePath = value;
                 OnPropertyChanged();
-                AppSettings.Set(AppSettings.PathKey.BackgroundImagePathKey, value);
             }
         }
 
@@ -244,7 +272,9 @@ namespace singC.ViewModels
             _configPath = AppSettings.Get(AppSettings.PathKey.ConfigPathKey) ?? string.Empty;
             foreach (var path in AppSettings.GetList(ConfigPathsKey))
                 ConfigPaths.Add(path);
-            AddConfigPath(_configPath, select: false);
+            // Loading a page must not perform a settings write before errors can be shown.
+            if (!string.IsNullOrWhiteSpace(_configPath) && File.Exists(_configPath)
+                && !ConfigPaths.Contains(_configPath)) ConfigPaths.Add(_configPath);
             _selectedConfigPath = _configPath;
             _backgroundImagePath = AppSettings.Get(AppSettings.PathKey.BackgroundImagePathKey) ?? string.Empty;
             _startWithWindows = StartupManager.IsEnabled();
@@ -285,9 +315,7 @@ namespace singC.ViewModels
             var path = await PickFileAsync("JSON 配置文件 (*.json)|*.json");
             if (path != null)
             {
-                ConfigPath = path;
-                AddConfigPath(path, select: true);
-                await LoadConfigAsync();
+                await SelectConfigAsync(path);
             }
         }
 
@@ -306,9 +334,13 @@ namespace singC.ViewModels
                 SelectedConfigPath = path;
         }
 
-        private void RemoveSelectedConfig()
+        private async void RemoveSelectedConfig()
         {
-            if (string.IsNullOrWhiteSpace(SelectedConfigPath)) return;
+            if (_configBusy || string.IsNullOrWhiteSpace(SelectedConfigPath)) return;
+            SetConfigBusy(true);
+            try
+            {
+            if (!await ConfirmDiscardAsync()) return;
 
             var removedPath = SelectedConfigPath;
             ConfigPaths.Remove(removedPath);
@@ -322,7 +354,7 @@ namespace singC.ViewModels
             _isChangingConfigSelection = false;
 
             if (!string.IsNullOrWhiteSpace(nextPath) && File.Exists(nextPath))
-                _ = LoadConfigAsync();
+                await LoadConfigAsync();
             else
             {
                 ConfigText = string.Empty;
@@ -331,11 +363,25 @@ namespace singC.ViewModels
                 OnPropertyChanged(nameof(CanEditRules));
                 StatusMessage = "已移除配置。";
             }
+            }
+            catch (Exception ex) { StatusMessage = "移除失败：" + ex.Message; }
+            finally { _isChangingConfigSelection = false; SetConfigBusy(false); }
         }
 
         private void SaveConfigPaths()
         {
             AppSettings.SetList(ConfigPathsKey, ConfigPaths);
+        }
+
+        private bool TrySaveSetting(AppSettings.PathKey key, string value, string property)
+        {
+            try { AppSettings.Set(key, value); return true; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                StatusMessage = "设置保存失败：" + ex.Message;
+                OnPropertyChanged(property);
+                return false;
+            }
         }
 
         private async Task BrowseBackgroundAsync()
@@ -352,8 +398,9 @@ namespace singC.ViewModels
                 string? path = NativeFileDialog.ShowOpenFileDialog(hwnd, filter);
                 return Task.FromResult(path);
             }
-            catch
+            catch (Exception ex)
             {
+                StatusMessage = "文件选择失败：" + ex.Message;
                 return Task.FromResult<string?>(null);
             }
         }
@@ -361,7 +408,8 @@ namespace singC.ViewModels
         // ========== 配置加载/保存（已整合简易模式） ==========
         public async Task LoadConfigAsync()
         {
-            if (string.IsNullOrEmpty(ConfigPath) || !File.Exists(ConfigPath))
+            string path = ConfigPath;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
                 StatusMessage = "配置文件路径无效，请先选择文件。";
                 return;
@@ -369,8 +417,10 @@ namespace singC.ViewModels
 
             try
             {
+                string? text = await _loads.ReadLatestAsync(path, target => File.ReadAllTextAsync(target));
+                if (text == null || path != ConfigPath) return;
                 _isLoadingConfig = true;
-                ConfigText = await File.ReadAllTextAsync(ConfigPath);
+                ConfigText = text;
                 // 加载后自动解析到简易表单
                 if (!ParseConfigToForm())
                 {
@@ -405,67 +455,40 @@ namespace singC.ViewModels
 
         public async Task SaveConfigAsync()
         {
-            if (string.IsNullOrEmpty(ConfigPath))
-            {
-                StatusMessage = "请先选择配置文件路径。";
-                return;
-            }
-
-            if (SingBoxService.Instance.IsRunning)
-            {
-                var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
-                {
-                    Title = "Sing-box 正在运行",
-                    Content = "当前 sing-box 正在运行。保存后需要重启才能加载新配置。\n\n确定要保存吗？",
-                    PrimaryButtonText = "保存",
-                    CloseButtonText = "取消",
-                    XamlRoot = (_window.Content as FrameworkElement)?.XamlRoot
-                };
-                if (await dialog.ShowAsync() != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
-                {
-                    StatusMessage = "保存已取消。";
-                    return;
-                }
-            }
-
-            string configText;
-            try { configText = GetConfigTextForSave(); }
-            catch (Exception ex) { StatusMessage = "无法保存：" + ex.Message; return; }
-            var validation = await SingBoxService.Instance.ValidateConfigAsync(ConfigPath, configText);
-            if (!validation.IsValid)
-            {
-                StatusMessage = validation.ToUserMessage();
-                return;
-            }
-
+            if (_configBusy) return;
+            string path = ConfigPath;
+            if (string.IsNullOrWhiteSpace(path)) { StatusMessage = "请先选择配置文件路径。"; return; }
+            SetConfigBusy(true);
+            _loads.Invalidate();
+            long edit = _editGeneration;
             try
             {
-                CreateConfigBackup();
-                string tempPath = Path.Combine(
-                    Path.GetDirectoryName(ConfigPath) ?? AppContext.BaseDirectory,
-                    $".{Path.GetFileName(ConfigPath)}.{Guid.NewGuid():N}.tmp");
-                try
+                string text = GetConfigTextForSave();
+                if (SingBoxService.Instance.IsRunning)
                 {
-                    await File.WriteAllTextAsync(tempPath, configText, new System.Text.UTF8Encoding(false));
-                    if (File.Exists(ConfigPath))
-                        File.Replace(tempPath, ConfigPath, null, ignoreMetadataErrors: true);
-                    else
-                        File.Move(tempPath, ConfigPath);
+                    var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
+                    {
+                        Title = "Sing-box 正在运行", Content = "保存后需要重启才能加载新配置，是否继续？",
+                        PrimaryButtonText = "保存", CloseButtonText = "取消",
+                        XamlRoot = (_window.Content as FrameworkElement)?.XamlRoot
+                    };
+                    if (await dialog.ShowAsync() != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary) return;
                 }
-                finally
+                var result = await ConfigFileStore.SaveValidatedAsync(path, text,
+                    (target, content) => SingBoxService.Instance.ValidateConfigAsync(target, content));
+                if (path != ConfigPath) return;
+                if (!result.IsValid) { StatusMessage = result.ToUserMessage(); return; }
+                if (edit == _editGeneration)
                 {
-                    try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                    _isLoadingConfig = true;
+                    try { ConfigText = text; HasUnsavedChanges = false; }
+                    finally { _isLoadingConfig = false; }
                 }
-
-                ConfigText = configText;
-                HasUnsavedChanges = false;
                 RefreshBackups();
                 StatusMessage = "配置保存成功，已生成备份。";
             }
-            catch (Exception ex)
-            {
-                StatusMessage = $"保存失败：{ex.Message}";
-            }
+            catch (Exception ex) { StatusMessage = "保存失败：" + ex.Message; }
+            finally { SetConfigBusy(false); }
         }
 
         private string GetConfigTextForSave()
@@ -477,90 +500,46 @@ namespace singC.ViewModels
         }
 
 
-        private void CreateConfigBackup()
-        {
-            if (!File.Exists(ConfigPath)) return;
-
-            string legacyBackup = ConfigPath + ".bak";
-            File.Copy(ConfigPath, legacyBackup, overwrite: true);
-
-            string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
-            string backupPath = $"{ConfigPath}.bak-{timestamp}";
-            File.Copy(ConfigPath, backupPath, overwrite: false);
-            RefreshBackups();
-
-            foreach (var oldBackup in ConfigBackups.Skip(10).ToList())
-            {
-                try { File.Delete(oldBackup.FilePath); } catch { }
-            }
-            RefreshBackups();
-        }
-
         private void RefreshBackups()
         {
             ConfigBackups.Clear();
             if (string.IsNullOrWhiteSpace(ConfigPath)) return;
-
-            string directory = Path.GetDirectoryName(ConfigPath) ?? string.Empty;
-            string pattern = $"{Path.GetFileName(ConfigPath)}.bak-*";
-            if (!Directory.Exists(directory)) return;
-
-            foreach (string path in Directory.EnumerateFiles(directory, pattern)
-                         .OrderByDescending(File.GetLastWriteTime)
-                         .Take(10))
-            {
+            foreach (string path in ConfigFileStore.GetBackups(ConfigPath).Take(ConfigFileStore.RetainedBackups))
                 ConfigBackups.Add(new ConfigBackupInfo(path));
-            }
         }
 
         private async Task RestoreBackupAsync(ConfigBackupInfo? backup)
         {
-            if (backup == null || !File.Exists(backup.FilePath) || string.IsNullOrWhiteSpace(ConfigPath)) return;
-
-            var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
-            {
-                Title = "恢复配置",
-                Content = $"将使用备份覆盖当前配置：\n{backup.FileName}\n\n当前文件会先备份。是否继续？",
-                PrimaryButtonText = "恢复",
-                CloseButtonText = "取消",
-                XamlRoot = (_window.Content as FrameworkElement)?.XamlRoot
-            };
-            if (await dialog.ShowAsync() != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary) return;
-
+            if (_configBusy || backup == null || !File.Exists(backup.FilePath) || string.IsNullOrWhiteSpace(ConfigPath)) return;
+            string path = ConfigPath, backupPath = backup.FilePath;
+            SetConfigBusy(true);
+            _loads.Invalidate();
             try
             {
-                CreateConfigBackup();
-                string restoredText = await File.ReadAllTextAsync(backup.FilePath);
-                var validation = await SingBoxService.Instance.ValidateConfigAsync(ConfigPath, restoredText);
-                if (!validation.IsValid)
+                var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
                 {
-                    StatusMessage = $"恢复失败，备份校验未通过：{validation.ToUserMessage()}";
-                    return;
-                }
-
-                string tempPath = $"{ConfigPath}.{Guid.NewGuid():N}.tmp";
-                try
-                {
-                    await File.WriteAllTextAsync(tempPath, restoredText, new System.Text.UTF8Encoding(false));
-                    File.Replace(tempPath, ConfigPath, null, ignoreMetadataErrors: true);
-                }
-                finally
-                {
-                    try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
-                }
-
+                    Title = "恢复配置", Content = "恢复所选备份并放弃当前未保存修改？当前文件会先备份。",
+                    PrimaryButtonText = "恢复", CloseButtonText = "取消",
+                    DefaultButton = Microsoft.UI.Xaml.Controls.ContentDialogButton.Close,
+                    XamlRoot = (_window.Content as FrameworkElement)?.XamlRoot
+                };
+                if (await dialog.ShowAsync() != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary) return;
+                string text = await File.ReadAllTextAsync(backupPath);
+                var result = await ConfigFileStore.SaveValidatedAsync(path, text,
+                    (target, content) => SingBoxService.Instance.ValidateConfigAsync(target, content));
+                if (path != ConfigPath) return;
+                if (!result.IsValid) { StatusMessage = result.ToUserMessage(); return; }
                 await LoadConfigAsync();
+                RefreshBackups();
                 StatusMessage = "配置已从备份恢复。";
             }
-            catch (Exception ex)
-            {
-                StatusMessage = $"恢复失败：{ex.Message}";
-            }
+            catch (Exception ex) { StatusMessage = "恢复失败：" + ex.Message; }
+            finally { SetConfigBusy(false); }
         }
 
         private void DeleteBackup(ConfigBackupInfo? backup)
         {
-            if (backup == null) return;
+            if (_configBusy || backup == null) return;
             try
             {
                 File.Delete(backup.FilePath);
@@ -626,7 +605,7 @@ namespace singC.ViewModels
 
         private void MarkConfigDirty()
         {
-            if (!_isLoadingConfig) HasUnsavedChanges = true;
+            if (!_isLoadingConfig) { _loads.Invalidate(); _editGeneration++; HasUnsavedChanges = true; }
         }
 
         private bool ParseConfigToForm()
@@ -700,7 +679,7 @@ namespace singC.ViewModels
         public bool CanExecute(object? parameter) => _canExecute?.Invoke() ?? true;
         public void Execute(object? parameter) => _execute();
         public event EventHandler? CanExecuteChanged { add { } remove { } }
-        
+
     }
 
     public class RelayCommand<T> : ICommand
