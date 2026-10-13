@@ -16,4 +16,5 @@ jobs:
             8.0.x
             10.0.x
       - run: dotnet run --project Tests/UpdateTests.csproj -c Release
+      - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tests/ProxyDiagnosticsTests.ps1
       - run: dotnet build -p Platform=x64 -c Release

@@ -25,6 +25,8 @@
     <Compile Include="../Models/ProxyModeConfig.cs" Link="Models/ProxyModeConfig.cs"/>
     <Compile Include="../Models/SingBoxService.cs" Link="Models/SingBoxService.cs"/>
     <Compile Include="../Helper/SystemProxyLease.cs" Link="Helper/SystemProxyLease.cs"/>
+    <Compile Include="../Helper/ProxyDiagnosticLog.cs" Link="Helper/ProxyDiagnosticLog.cs"/>
+    <Compile Include="../Helper/LoggingSettings.cs" Link="Helper/LoggingSettings.cs"/>
     <Compile Include="../Helper/WindowsSystemProxy.cs" Link="Helper/WindowsSystemProxy.cs"/>
     <Compile Include="../Models/NetworkTestService.cs" Link="Models/NetworkTestService.cs"/>
     <Compile Include="../Models/TrafficData.cs" Link="Models/TrafficData.cs"/>

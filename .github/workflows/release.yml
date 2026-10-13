@@ -19,6 +19,8 @@ jobs:
             10.0.x
       - name: Test updater
         run: dotnet run --project Tests/UpdateTests.csproj -c Release
+      - name: Test diagnostic collector
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tests/ProxyDiagnosticsTests.ps1
       - name: Build clean release
         shell: pwsh
         run: ./Scripts/Build-Release.ps1 -Version $env:GITHUB_REF_NAME

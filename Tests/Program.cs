@@ -30,6 +30,8 @@ try
     await ConnectionStorageTests.RunAsync(Dir("connection-storage"), Check);
     await LifecyclePresentationTests.RunAsync(Dir("lifecycle-presentation"), Check);
     ModeBoundaryTests.Run(Check);
+    ProxyDiagnosticLogTests.Run(Dir("proxy-diagnostics"), Check);
+    LoggingSettingsTests.Run(Dir("logging-settings"), Check);
     await WebSocketLifecycleTests.RunAsync(Check);
     UpdateBoundaryTests.Run(Dir("update-boundaries"), Check);
     TrafficStatisticsTests.Run(Dir("traffic"), Check);

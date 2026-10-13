@@ -45,6 +45,18 @@ When adding a missing TUN inbound, singC uses the current
 and checks the result using the configured sing-box executable. See also the
 [mixed inbound documentation](https://sing-box.sagernet.org/configuration/inbound/mixed/).
 
+## Optional diagnostic logging
+
+Enable **日志开关** on the Settings page to record proxy restoration diagnostics.
+It defaults to off, remembers the user's choice, and affects subsequent writes
+immediately. Disabling it retains existing logs and does not disable the proxy
+recovery backup. Diagnostic files are stored under `%LOCALAPPDATA%/singC` as
+`proxy-diagnostics.jsonl` and one rotated `.previous` file. Settings are recorded
+as flags and fingerprints, without raw proxy credentials, PAC URLs or bypass lists.
+This adds evidence for troubleshooting; it does not change restoration behavior.
+See [the log guide](docs/PROXY-RECOVERY-LOG.md) and
+[the user-run snapshot collector](docs/PROXY-DIAGNOSTICS.md).
+
 ## Local traffic statistics
 
 Open **流量统计** to view upload/download speeds, usage for the current sing-box

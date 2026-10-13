@@ -121,6 +121,8 @@
                         </Grid>
                         <ToggleSwitch Header="开机启动"
                                       IsOn="{x:Bind ViewModel.StartWithWindows, Mode=TwoWay}"/>
+                        <ToggleSwitch x:Name="LoggingToggle" Header="日志开关" Toggled="LoggingToggle_Toggled"/>
+                        <TextBlock x:Name="LoggingStatus" TextWrapping="Wrap" Visibility="Collapsed"/>
                     </StackPanel>
                 </Border>
 

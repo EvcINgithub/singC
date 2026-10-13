@@ -75,6 +75,7 @@ namespace singC.Models
 
         public ProxyMode PreferredMode => _preferredMode;
         public int ProxyPort => _proxyPort;
+        internal void TraceProxyLifecycle(string stage, Exception? error = null) => _systemProxy.Trace(stage, error);
         public ProxyMode? ActiveMode => _activePlan?.Mode;
         public long RunGeneration => Interlocked.Read(ref _runGeneration);
         public ClashApiEndpoint GetActiveClashApiEndpoint()
@@ -339,6 +340,7 @@ namespace singC.Models
 
         private async Task StopCoreAsync(bool keepRuntime, CancellationToken token)
         {
+            _systemProxy.Trace("core.stop-requested");
             var process = _process;
             var plan = _activePlan;
             if (process != null)
@@ -351,6 +353,7 @@ namespace singC.Models
                 }
                 catch (Exception ex)
                 {
+                    _systemProxy.Trace("core.stop-failed-before-proxy-restore", ex);
                     SetLastError("停止 sing-box 失败：" + ex.Message, null);
                     SetState(SingBoxRuntimeState.Failed);
                     throw;
@@ -511,6 +514,7 @@ namespace singC.Models
             try
             {
                 if (!ReferenceEquals(_process, process)) return;
+                _systemProxy.Trace("core.unexpected-exit");
                 int? exitCode = null;
                 try { exitCode = process.ExitCode; } catch { }
                 var plan = _activePlan;

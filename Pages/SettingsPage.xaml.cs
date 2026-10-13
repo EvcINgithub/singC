@@ -12,12 +12,15 @@ namespace singC.Pages
     {
         public SettingsViewModel ViewModel { get; }
         private bool _updatingControls;
+        private bool _updatingLoggingControls = true;
 
         public SettingsPage()
         {
             this.InitializeComponent();
             ViewModel = new SettingsViewModel(App.window);
             TrafficServiceUrlBox.Text = AppSettings.Get(AppSettings.TrafficServiceUrlKey) ?? string.Empty;
+            LoggingToggle.IsOn = AppSettings.Logging.Enabled;
+            _updatingLoggingControls = false;
             Loaded += (_, _) => { AppUpdateService.Instance.Changed += RefreshUpdateControls; RefreshUpdateControls(); };
             Unloaded += (_, _) => AppUpdateService.Instance.Changed -= RefreshUpdateControls;
         }
@@ -34,6 +37,24 @@ namespace singC.Pages
             AppUpdateStatus.Text = service.Status;
             ReleaseNotesText.Text = service.Notes;
             _updatingControls = false;
+        }
+
+        private void LoggingToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_updatingLoggingControls) return;
+            try
+            {
+                AppSettings.Logging.Enabled = LoggingToggle.IsOn;
+                LoggingStatus.Visibility = Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                _updatingLoggingControls = true;
+                try { LoggingToggle.IsOn = AppSettings.Logging.Enabled; }
+                finally { _updatingLoggingControls = false; }
+                LoggingStatus.Text = "日志开关保存失败：" + ex.Message;
+                LoggingStatus.Visibility = Visibility.Visible;
+            }
         }
 
         private void AddRule_Click(object sender, RoutedEventArgs e)

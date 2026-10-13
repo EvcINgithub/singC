@@ -17,6 +17,7 @@ flowchart TB
             Mode["ProxyModeConfig<br/>生成 TUN / 代理运行配置"]
             Editor["SettingsViewModel / RouteConfigDocument<br/>规则编辑、配置保存与备份"]
             Proxy["SystemProxyLease / WindowsSystemProxy<br/>系统代理设置与恢复"]
+            ProxyLog["ProxyDiagnosticLog<br/>恢复阶段、字段差异及错误日志"]
             CheckRunner["ConfigCheckRunner<br/>校验进程、截止时间、有界输出"]
             ConfigStore["ConfigFileStore / ConfigLoadCoordinator<br/>原子配置写入、备份清理、过期读取保护"]
         end
@@ -79,6 +80,8 @@ flowchart TB
     CoreService -->|读取源配置、写运行配置| Files
     Engine -.->|标准输出、错误与退出| CoreService
     Proxy --> OS
+    Proxy --> ProxyLog
+    ProxyLog -->|脱敏 JSONL 与轮转| Files
     Proxy -->|恢复记录| Files
     Shared --> Files
     Shared --> SettingsStore
@@ -132,6 +135,22 @@ flowchart TB
 - 页面同时使用代码后置、服务和部分 ViewModel；图中分组表达职责，不声称当前系统已经采用严格分层或完整 MVVM。
 
 源码核对入口：`App.xaml.cs`、`MainWindow.xaml.cs`、`Pages/*.xaml.cs`、`Models/SingBoxService.cs`、`Models/ConnectionViewModel.cs`、`Models/ClashWebSocketService.cs`、`Models/TrafficStatisticsViewModel.cs`、`Models/SettingsViewModel.cs`、`Models/AppUpdateService.cs`、`Helper/AppSettings.cs`、`Helper/SystemProxyLease.cs`、`Updater/Program.cs` 和 `UpdateCore/*`。本图通过静态调用关系核对，不代表已执行系统级运行测试。
+
+## 代理恢复诊断
+
+`LoggingSettings` 提供共用的日志输出开关，由设置页“日志开关”控制，默认关闭，通过 `SettingsStore` 持久保存。启用后 `ProxyDiagnosticLog` 记录窗口退出、内核停止、代理写入/恢复及字段比较结果，输出至本地 `proxy-diagnostics.jsonl` 并轮转。设置值仅保留标志和内容指纹，日志失败不改变恢复控制流程。代理恢复备份不受开关影响；内核运行输出和用户主动执行的外部采集脚本不属于此诊断文件开关。详见 [代理恢复日志](PROXY-RECOVERY-LOG.md)。
+
+## 用户主动运行的外部采集工具
+
+`Scripts/Collect-ProxyDiagnostics.ps1` 是独立的只读诊断脚本，由用户主动运行，观察 singC 退出并记录前后系统代理、浏览器代理偏好与恢复记录摘要。它不参与代理设置或恢复，不注册自启动，也不改变主程序生命周期。采集到的磁盘配置不代表浏览器请求实际采用的路径。操作说明见 [代理故障现场采集](PROXY-DIAGNOSTICS.md)。
+
+```mermaid
+flowchart LR
+    User[用户主动运行] --> Collector[PowerShell 只读采集脚本]
+    Collector -->|观察退出| Process[singC 进程状态]
+    Collector -->|读取| Config[Windows 代理 / 浏览器代理偏好 / 恢复摘要]
+    Collector --> Evidence[本地脱敏 JSON 快照]
+```
 
 ## 维护约定
 

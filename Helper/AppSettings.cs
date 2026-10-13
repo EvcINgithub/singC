@@ -11,6 +11,7 @@ namespace singC.Helpers
     {
         private static readonly SettingsStore Store = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "singC", "settings.json"));
         public static string StorageError => Store.ReadError;
+        public static LoggingSettings Logging { get; } = new(Store);
 
         public const string NetworkTestUrlKey = "NetworkTestUrl";
         public const string NetworkTestHostKey = "NetworkTestHost";

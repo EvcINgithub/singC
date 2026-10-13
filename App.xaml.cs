@@ -96,16 +96,19 @@ namespace singC
             args.Cancel = true;
             if (_closing) return;
             _closing = true;
+            SingBoxService.Instance.TraceProxyLifecycle("app.close-requested");
             SingBoxService.Instance.PrepareForExit();
             try
             {
                 await ShutdownSequence.RunAsync(() => SingBoxService.Instance.StopAsync(),
                     ConnectionViewModel.Instance.Traffic.Save, ConnectionViewModel.Instance.ShutdownAsync);
                 _allowClose = true;
+                SingBoxService.Instance.TraceProxyLifecycle("app.close-cleanup-completed");
                 window.Close();
             }
             catch (Exception ex)
             {
+                SingBoxService.Instance.TraceProxyLifecycle("app.close-failed", ex);
                 SingBoxService.Instance.CancelExit();
                 Debug.WriteLine("退出未完成，请重试关闭：" + ex.Message);
                 if (window.Content is FrameworkElement root)
