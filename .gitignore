@@ -21,3 +21,6 @@ artifacts/
 *.pfx
 *.key
 *.pem
+
+# Private diagnostic files supplied by users.
+/user-logs/

@@ -16,7 +16,7 @@ flowchart TB
             CoreService["SingBoxService<br/>进程生命周期、配置校验、日志"]
             Mode["ProxyModeConfig<br/>生成 TUN / 代理运行配置"]
             Editor["SettingsViewModel / RouteConfigDocument<br/>规则编辑、配置保存与备份"]
-            Proxy["SystemProxyLease / WindowsSystemProxy<br/>系统代理设置与恢复"]
+            Proxy["SystemProxyLease / WindowsSystemProxy<br/>系统代理强制回退、TUN 条件恢复"]
             ProxyLog["ProxyDiagnosticLog<br/>恢复阶段、字段差异及错误日志"]
             CheckRunner["ConfigCheckRunner<br/>校验进程、截止时间、有界输出"]
             ConfigStore["ConfigFileStore / ConfigLoadCoordinator<br/>原子配置写入、备份清理、过期读取保护"]
@@ -137,6 +137,8 @@ flowchart TB
 源码核对入口：`App.xaml.cs`、`MainWindow.xaml.cs`、`Pages/*.xaml.cs`、`Models/SingBoxService.cs`、`Models/ConnectionViewModel.cs`、`Models/ClashWebSocketService.cs`、`Models/TrafficStatisticsViewModel.cs`、`Models/SettingsViewModel.cs`、`Models/AppUpdateService.cs`、`Helper/AppSettings.cs`、`Helper/SystemProxyLease.cs`、`Updater/Program.cs` 和 `UpdateCore/*`。本图通过静态调用关系核对，不代表已执行系统级运行测试。
 
 ## 代理恢复诊断
+
+系统代理租约停止、切换、退出或下次启动补恢复时，无条件写回该次启用前的完整快照，覆盖期间的外部修改；当前设置回读仅用于诊断，读取失败不阻止写回。写回抛错保留恢复记录供重试。原设置若已启用代理，恢复后也会启用。TUN-only 租约继续采用原有匹配恢复策略；这里没有新增监护或自启动。
 
 `LoggingSettings` 提供共用的日志输出开关，由设置页“日志开关”控制，默认关闭，通过 `SettingsStore` 持久保存。启用后 `ProxyDiagnosticLog` 记录窗口退出、内核停止、代理写入/恢复及字段比较结果，输出至本地 `proxy-diagnostics.jsonl` 并轮转。设置值仅保留标志和内容指纹，日志失败不改变恢复控制流程。代理恢复备份不受开关影响；内核运行输出和用户主动执行的外部采集脚本不属于此诊断文件开关。详见 [代理恢复日志](PROXY-RECOVERY-LOG.md)。
 

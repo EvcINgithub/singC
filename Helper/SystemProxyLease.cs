@@ -12,9 +12,11 @@ public interface ISystemProxyBackend
 }
 
 // An exclusive file handle prevents two singC instances from claiming the proxy.
-// The journal survives crashes; recovery changes settings only if they are still ours.
+// System-proxy leases always restore their original snapshot, including external changes.
+// TUN-only leases retain the existing matching policy. The journal survives crashes.
 public sealed class SystemProxyLease(ISystemProxyBackend backend, string path, Func<bool>? isLoggingEnabled = null)
 {
+    private const int ManualProxyFlag = 2;
     private sealed record Journal(SystemProxySettings Original, SystemProxySettings Applied);
     private FileStream? _stream;
     private readonly object _gate = new();
@@ -117,10 +119,18 @@ public sealed class SystemProxyLease(ISystemProxyBackend backend, string path, F
         var journal = JsonSerializer.Deserialize<Journal>(stream)
             ?? throw new InvalidDataException("系统代理恢复记录无效，请检查 system-proxy-backup.json。");
         if (journal.Original == null || journal.Applied == null) throw new InvalidDataException("系统代理恢复记录不完整。");
-        var current = backend.Read();
-        ProxyDiagnosticLog.Write(path, _session, "restore.compare", journal.Original, journal.Applied, current, isEnabled: isLoggingEnabled);
-        if (current == journal.Applied)
+        bool forceOriginal = (journal.Applied.Flags & ManualProxyFlag) != 0;
+        SystemProxySettings? current = null;
+        try { current = backend.Read(); }
+        catch (Exception ex) when (forceOriginal)
         {
+            // Current state is diagnostic only for a forced system-proxy restoration.
+            Trace("restore.read-current-failed", ex);
+        }
+        ProxyDiagnosticLog.Write(path, _session, "restore.compare", journal.Original, journal.Applied, current, isEnabled: isLoggingEnabled);
+        if (forceOriginal || current == journal.Applied)
+        {
+            if (forceOriginal) Trace("restore.forced-original");
             Trace("restore.write-original");
             backend.Write(journal.Original);
             Trace("restore.write-succeeded");

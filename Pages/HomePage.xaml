@@ -161,6 +161,7 @@
                                             <TextBlock Text="跟随配置：使用配置文件中的入站方式。" TextWrapping="Wrap"/>
                                             <TextBlock Text="TUN：通过虚拟网卡接管流量，需要以管理员身份运行。" TextWrapping="Wrap"/>
                                             <TextBlock Text="系统代理：设置 Windows 代理，同时提供本地 HTTP/SOCKS 入口。" TextWrapping="Wrap"/>
+                                            <TextBlock Text="系统代理停止或切换时恢复启用前设置，期间其他软件的代理修改将被覆盖。" TextWrapping="Wrap"/>
                                             <TextBlock Text="运行中切换会短暂中断连接；失败时恢复原模式。" TextWrapping="Wrap"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         </StackPanel>

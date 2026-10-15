@@ -31,8 +31,10 @@ listener, retaining the TUN tag for inbound-based rules. Its default port is
 port. Configurations with multiple TUN inbounds require manual consolidation.
 Windows HTTP/HTTPS proxy settings are enabled only after the listener is ready.
 TUN mode temporarily disables Windows manual/PAC/auto-detect proxying. Stopping,
-switching or a core exit restores the prior Windows settings; settings changed
-by another application are preserved. Only applications that honor Windows
+switching or a core exit always restores the startup snapshot for a system-proxy
+session, overwriting proxy changes made by other applications during that session.
+TUN-only sessions retain conditional restoration when external settings change.
+Only applications that honor Windows
 system proxy settings use system proxy mode automatically.
 
 The source JSON is not modified. Temporary configurations live under
@@ -53,7 +55,7 @@ immediately. Disabling it retains existing logs and does not disable the proxy
 recovery backup. Diagnostic files are stored under `%LOCALAPPDATA%/singC` as
 `proxy-diagnostics.jsonl` and one rotated `.previous` file. Settings are recorded
 as flags and fingerprints, without raw proxy credentials, PAC URLs or bypass lists.
-This adds evidence for troubleshooting; it does not change restoration behavior.
+The guide explains restoration decisions and their diagnostic events.
 See [the log guide](docs/PROXY-RECOVERY-LOG.md) and
 [the user-run snapshot collector](docs/PROXY-DIAGNOSTICS.md).
 

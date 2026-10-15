@@ -31,6 +31,7 @@ try
     await LifecyclePresentationTests.RunAsync(Dir("lifecycle-presentation"), Check);
     ModeBoundaryTests.Run(Check);
     ProxyDiagnosticLogTests.Run(Dir("proxy-diagnostics"), Check);
+    ForcedProxyRestoreTests.Run(Dir("forced-proxy-restore"), Check);
     LoggingSettingsTests.Run(Dir("logging-settings"), Check);
     await WebSocketLifecycleTests.RunAsync(Check);
     UpdateBoundaryTests.Run(Dir("update-boundaries"), Check);

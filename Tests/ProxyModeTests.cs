@@ -118,7 +118,11 @@ internal static class ProxyModeTests
         lease.Apply("127.0.0.1", 7890);
         backend.Current = original with { Server = "external-change:9000" };
         lease.Restore();
-        check(backend.Current.Server == "external-change:9000", "mode: external proxy changes are not overwritten");
+        check(backend.Current == original, "mode: stopping system proxy overwrites external changes with the startup snapshot");
+        lease.Apply(null, null);
+        backend.Current = original with { Server = "external-tun-change:9000" };
+        lease.Restore();
+        check(backend.Current.Server == "external-tun-change:9000", "mode: TUN-only restoration keeps its existing external-change policy");
         backend.Current = applied;
         File.WriteAllText(journal, JsonSerializer.Serialize(new { Original = original, Applied = applied }));
         competitor.Recover();
@@ -189,8 +193,10 @@ internal static class ProxyModeTests
             try { await service.SwitchModeAsync(ProxyMode.Tun, service.ProxyPort); throw new Exception("Expected permission rejection"); }
             catch (InvalidOperationException) { check(service.ActiveMode == ProxyMode.SystemProxy && service.IsRunning, "mode: missing TUN privileges do not stop current proxy"); }
             admin = true;
+            backend.Current = backend.Current with { Bypass = "external-change-during-proxy" };
             await service.SwitchModeAsync(ProxyMode.Tun, service.ProxyPort);
             check(service.ActiveMode == ProxyMode.Tun && backend.Current.Flags == 1, "mode: live proxy-to-TUN switch clears the temporary proxy");
+            check(backend.Current.Bypass == original.Bypass, "mode: proxy-to-TUN switch restores startup bypass before creating the TUN lease");
             backend.FailNextWrite = true;
             try { await service.StopAsync(); throw new Exception("Expected proxy restoration failure"); }
             catch (IOException) { check(service.State == SingBoxRuntimeState.Failed && service.LastError.Contains("恢复"), "mode: failed restoration is never reported as stopped"); }

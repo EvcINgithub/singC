@@ -57,8 +57,8 @@ internal static class ProxyDiagnosticLogTests
             lease.Restore();
             var compare = Read(log).Last(r => Stage(r) == "restore.compare");
             check(compare.GetProperty("ChangedFields").EnumerateArray().Select(f => f.GetString()).SequenceEqual(new[] { item.Name }), "proxy log: identifies changed " + item.Name);
-            check(backend.Current == item.Settings && new FileInfo(journal).Length == 0
-                && Read(log).Any(r => Stage(r) == "restore.skipped-settings-changed"), "proxy log: existing skip-and-clear behavior preserved for " + item.Name);
+            check(backend.Current == original && new FileInfo(journal).Length == 0
+                && Read(log).Any(r => Stage(r) == "restore.forced-original"), "proxy log: startup snapshot is forced despite changed " + item.Name);
         }
         backend.Current = original;
         lease.Apply("127.0.0.1", 7890);
