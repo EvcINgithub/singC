@@ -59,11 +59,12 @@
                 <Border Padding="14" CornerRadius="8"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                     <StackPanel Spacing="10">
-                        <TextBlock Text="个人服务" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                        <TextBlock Text="地址保存在本机，留空则不连接。请输入完整的 HTTP 或 HTTPS 地址。" TextWrapping="Wrap"/>
-                        <TextBox x:Name="TrafficServiceUrlBox" Header="流量查询接口" PlaceholderText="https://example.com/traffic"/>
-                        <Button Content="保存服务地址" Click="SaveServiceUrls_Click"/>
-                        <TextBlock x:Name="ServiceUrlStatus" TextWrapping="Wrap"/>
+                        <TextBlock Text="搬瓦工流量查询" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        <TextBlock Text="本机直接查询搬瓦工流量，每 8 小时刷新；API 余量仅通过侧栏按钮手动查询。手动查询至少间隔 1 分钟，余量耗尽或查询失败时暂缓请求。凭据使用当前 Windows 用户加密保存；清空两项并保存可停用。" TextWrapping="Wrap"/>
+                        <TextBox x:Name="BandwagonVeidBox" Header="VEID" PlaceholderText="VPS 编号"/>
+                        <PasswordBox x:Name="BandwagonApiKeyBox" Header="API Key" PlaceholderText="KiwiVM API 密钥"/>
+                        <Button x:Name="SaveBandwagonButton" Content="保存并查询" Click="SaveBandwagon_Click"/>
+                        <TextBlock x:Name="BandwagonStatus" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
                 <Border Padding="14"

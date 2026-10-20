@@ -8,29 +8,8 @@ using singC.Models;
 
 internal static class WebSocketLifecycleTests
 {
-    private sealed class Handler(HttpStatusCode status, string body) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
-            => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) });
-    }
-
     public static async Task RunAsync(Action<bool, string> check)
     {
-        foreach (var row in new[] {
-            (Code:HttpStatusCode.OK,Body:"{\"UsedGB\":1,\"RemainingGB\":2,\"ResetTimestamp\":0}",Data:true,Error:false),
-            (Code:HttpStatusCode.ServiceUnavailable,Body:"{}",Data:true,Error:true),
-            (Code:HttpStatusCode.ServiceUnavailable,Body:"{\"error\":\"existing\"}",Data:true,Error:true),
-            (Code:HttpStatusCode.OK,Body:"null",Data:false,Error:false),
-            (Code:HttpStatusCode.OK,Body:"{",Data:false,Error:false),
-            (Code:HttpStatusCode.InternalServerError,Body:"{}",Data:false,Error:false) })
-        {
-            using var client = new HttpClient(new Handler(row.Code,row.Body));
-            var data = await ClashWebSocketService.FetchTrafficDataAsync(client,"http://localhost/traffic");
-            check((data != null) == row.Data && (!row.Error || !string.IsNullOrEmpty(data?.Error)), "quota response " + row.Code + row.Body);
-        }
-        using (var client = new HttpClient(new Handler(HttpStatusCode.OK,"{}")))
-            check(await ClashWebSocketService.FetchTrafficDataAsync(client,"file:///invalid") == null, "quota rejects non-HTTP URL");
-
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));

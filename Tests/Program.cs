@@ -27,6 +27,8 @@ void Fixture(string dir, string version, params string[] extras)
 try
 {
     await SettingsStorageTests.RunAsync(Dir("settings-storage"), Check);
+    await BandwagonTrafficTests.RunAsync(Dir("bandwagon"), Check);
+    await BandwagonQuotaTests.RunAsync(Check);
     await ConnectionStorageTests.RunAsync(Dir("connection-storage"), Check);
     await LifecyclePresentationTests.RunAsync(Dir("lifecycle-presentation"), Check);
     ModeBoundaryTests.Run(Check);

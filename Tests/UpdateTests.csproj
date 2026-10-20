@@ -8,6 +8,9 @@
   <ItemGroup><Compile Include="../UpdateCore/*.cs" Link="UpdateCore/%(Filename)%(Extension)"/></ItemGroup>
   <ItemGroup><Compile Remove="FixtureApp/**"/></ItemGroup>
   <ItemGroup>
+    <Compile Include="../Helper/BandwagonSettings.cs" Link="Helper/BandwagonSettings.cs"/>
+    <Compile Include="../Models/BandwagonTrafficService.cs" Link="Models/BandwagonTrafficService.cs"/>
+    <Compile Include="../Models/BandwagonQueryCoordinator.cs" Link="Models/BandwagonQueryCoordinator.cs"/>
     <Compile Include="../Models/ConfigCheckRunner.cs" Link="Models/ConfigCheckRunner.cs"/>
     <Compile Include="../Models/ConfigLoadCoordinator.cs" Link="Models/ConfigLoadCoordinator.cs"/>
     <Compile Include="../Models/ConnectionPresentation.cs" Link="Models/ConnectionPresentation.cs"/>

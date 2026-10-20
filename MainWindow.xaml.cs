@@ -56,7 +56,7 @@ namespace singC
         {
             this.InitializeComponent();
             _trafficTimer = this.DispatcherQueue.CreateTimer();
-            _trafficTimer.Interval = TimeSpan.FromHours(1);
+            _trafficTimer.Interval = TimeSpan.FromHours(8);
             _trafficTimer.Tick += async (s, e) => await RefreshTrafficAsync();
             this.DispatcherQueue.TryEnqueue(() =>
             {
@@ -116,6 +116,10 @@ namespace singC
                 RemainText.Visibility = Visibility.Collapsed;
                 TittleText.Visibility = Visibility.Collapsed;
                 ResetTimeText.Visibility = Visibility.Collapsed;
+                UpdateTimeText.Visibility = Visibility.Collapsed;
+                ApiQuotaText.Visibility = Visibility.Collapsed;
+                RefreshTrafficButton.Visibility = Visibility.Collapsed;
+                RefreshApiQuotaButton.Visibility = Visibility.Collapsed;
             }
 
             if (MainSplitView.IsPaneOpen)
@@ -124,6 +128,10 @@ namespace singC
                 RemainText.Visibility = Visibility.Visible;
                 TittleText.Visibility = Visibility.Visible;
                 ResetTimeText.Visibility = Visibility.Visible;
+                UpdateTimeText.Visibility = Visibility.Visible;
+                ApiQuotaText.Visibility = Visibility.Visible;
+                RefreshTrafficButton.Visibility = Visibility.Visible;
+                RefreshApiQuotaButton.Visibility = Visibility.Visible;
             }
         }
 
@@ -176,64 +184,77 @@ namespace singC
 
         //-------------------------------流量相关----------------------------------
         private bool _trafficRefreshRunning;
-        internal async System.Threading.Tasks.Task RefreshTrafficAsync()
+        private async void RefreshTraffic_Click(object sender, RoutedEventArgs e) => await RefreshTrafficAsync(manual: true);
+        private async void RefreshApiQuota_Click(object sender, RoutedEventArgs e) => await RefreshTrafficAsync(queryApiQuota: true);
+        internal async System.Threading.Tasks.Task RefreshTrafficAsync(bool manual = false, bool queryApiQuota = false)
         {
             if (_trafficRefreshRunning) return;
             _trafficRefreshRunning = true;
+            RefreshTrafficButton.IsEnabled = false;
+            RefreshApiQuotaButton.IsEnabled = false;
             _trafficTimer?.Stop();
-            var nextQuery = TimeSpan.FromHours(1);
-            var requestedUrl = AppSettings.Get(AppSettings.TrafficServiceUrlKey);
+            var nextQuery = TimeSpan.FromHours(8);
+            var requestedVersion = AppSettings.Bandwagon.Version;
             try
             {
-                if (!AppSettings.IsServiceUrl(AppSettings.Get(AppSettings.TrafficServiceUrlKey)))
+                // Clear the previous account before querying or reporting invalid credentials.
+                UsedText.Text = "已使用流量: --";
+                RemainText.Text = "剩余流量: --";
+                ResetTimeText.Text = "重置时间: --";
+                ApiQuotaText.Text = "API 余量: --";
+                ToolTipService.SetToolTip(ApiQuotaText, null);
+                var credentials = AppSettings.Bandwagon.Load();
+                if (credentials == null)
                 {
-                    UsedText.Text = "已使用流量: --";
-                    RemainText.Text = "剩余流量: --";
-                    ResetTimeText.Text = "重置时间: --";
-                    UpdateTimeText.Text = "未配置流量服务，请在设置中填写地址";
+                    UpdateTimeText.Text = "请在设置中填写搬瓦工 VEID 和 API Key";
                     return;
                 }
-                var data = await ClashWebSocketService.FetchTrafficDataAsync();
-                if (requestedUrl != AppSettings.Get(AppSettings.TrafficServiceUrlKey)) return;
-                if (data?.RetryAfterSeconds > 0)
-                    nextQuery = TimeSpan.FromSeconds(Math.Min(data.RetryAfterSeconds, TimeSpan.FromDays(365).TotalSeconds));
-                else if (data?.HasTrafficData == true && data.Cached && !data.Stale)
-                    nextQuery = TimeSpan.FromSeconds(Math.Max(1, nextQuery.TotalSeconds - Math.Max(0, data.CacheAgeSeconds)));
+                UpdateTimeText.Text = queryApiQuota ? "正在查询 API 余量…" : "正在查询搬瓦工流量…";
+                var result = queryApiQuota
+                    ? await BandwagonQueryCoordinator.Instance.RefreshQuotaAsync(credentials)
+                    : await BandwagonQueryCoordinator.Instance.RefreshTrafficAsync(credentials, manual);
+                if (requestedVersion != AppSettings.Bandwagon.Version) return;
+                if (result.NextAutomaticAt != DateTimeOffset.MinValue)
+                    nextQuery = TimeSpan.FromSeconds(Math.Clamp((result.NextAutomaticAt - DateTimeOffset.UtcNow).TotalSeconds, 1, 86400));
+                var data = result.Traffic;
+                if (result.Quota is { } quota)
+                {
+                    ApiQuotaText.Text = $"API 余量快照：\n15 分钟 {quota.Remaining15Minutes} 点 / 24 小时 {quota.Remaining24Hours} 点";
+                    ToolTipService.SetToolTip(ApiQuotaText, $"记录于 {result.QuotaCheckedAt?.ToLocalTime():yyyy-MM-dd HH:mm:ss}；点数不等于调用次数，其他客户端也会消耗点数。");
+                }
+                else ToolTipService.SetToolTip(ApiQuotaText, null);
+                if (result.QuotaStatus.Length > 0) ApiQuotaText.Text += "\n" + result.QuotaStatus;
 
                 if (data?.HasTrafficData == true)
                 {
-                    UsedText.Text = $"已使用流量: {data.UsedGB} GB";
-                    RemainText.Text = $"剩余流量: {data.RemainingGB} GB";
+                    UsedText.Text = $"已使用流量: {data.UsedGB:0.##} GB";
+                    RemainText.Text = $"剩余流量: {data.RemainingGB:0.##} GB";
                     ResetTimeText.Text = $"重置时间: {DateTimeOffset.FromUnixTimeSeconds(data.ResetTimestamp!.Value).ToLocalTime():yyyy-MM-dd HH:mm:ss}";
-                    var now = DateTimeOffset.UtcNow;
-                    var age = Math.Clamp(data.CacheAgeSeconds, 0, now.ToUnixTimeSeconds());
-                    var updatedAt = now.AddSeconds(-age).ToLocalTime();
-                    var status = data.Stale ? "（旧缓存）" : data.Cached ? "（缓存）" : string.Empty;
-                    UpdateTimeText.Text = $"更新: {updatedAt:yyyy-MM-dd HH:mm:ss}{status}";
+                    UpdateTimeText.Text = $"更新: {result.TrafficUpdatedAt?.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
                 }
                 else
                 {
-                    UpdateTimeText.Text = data?.Error != null
-                        ? "更新: 流量服务暂时不可用"
-                        : $"更新: 获取失败 ({DateTime.Now:HH:mm:ss})";
+                    UpdateTimeText.Text = "尚无套餐流量数据。";
                 }
-                if (data?.Backoff == true || data?.RetryAfterSeconds > 0)
-                    UpdateTimeText.Text += "（服务暂缓更新）";
+                if (result.Status.Length > 0) UpdateTimeText.Text += "\n" + result.Status;
+                if (result.Cached) UpdateTimeText.Text += $"\n使用缓存，最早可查询{(queryApiQuota ? "配额" : "流量")}：{(queryApiQuota ? result.NextQuotaAt : result.NextManualAt).ToLocalTime():MM-dd HH:mm:ss}";
+                UpdateTimeText.TextWrapping = TextWrapping.Wrap;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"流量刷新错误: {ex.Message}");
-                UpdateTimeText.Text = $"更新: 错误 ({DateTime.Now:HH:mm:ss})";
+                UpdateTimeText.Text = "查询失败，请在设置中检查搬瓦工凭据。";
             }
             finally
             {
                 _trafficRefreshRunning = false;
+                RefreshTrafficButton.IsEnabled = true;
+                RefreshApiQuotaButton.IsEnabled = true;
                 if (_trafficTimer != null)
                 {
                     _trafficTimer.Interval = nextQuery;
                     _trafficTimer.Start();
                 }
-                if (requestedUrl != AppSettings.Get(AppSettings.TrafficServiceUrlKey))
+                if (requestedVersion != AppSettings.Bandwagon.Version)
                     DispatcherQueue.TryEnqueue(async () => await RefreshTrafficAsync());
             }
         }

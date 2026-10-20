@@ -194,32 +194,6 @@ namespace singC.Models
             try { ConnectionStateChanged?.Invoke(state, ReconnectAttempt, LastError); }
             catch { }
         }
-        public static Task<TrafficData?> FetchTrafficDataAsync() => FetchTrafficDataAsync(_httpClient,
-            singC.Helpers.AppSettings.Get(singC.Helpers.AppSettings.TrafficServiceUrlKey));
-
-        internal static async Task<TrafficData?> FetchTrafficDataAsync(HttpClient client, string? trafficDataUrl)
-        {
-            if (!singC.Helpers.AppSettings.IsServiceUrl(trafficDataUrl))
-                return null;
-            try
-            {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                using HttpResponseMessage response = await client.GetAsync(trafficDataUrl, timeout.Token);
-                if (response.StatusCode != System.Net.HttpStatusCode.ServiceUnavailable)
-                    response.EnsureSuccessStatusCode();
-
-                string json = await response.Content.ReadAsStringAsync(timeout.Token);
-                TrafficData? data = JsonSerializer.Deserialize<TrafficData>(json);
-                if (data != null && !response.IsSuccessStatusCode)
-                    data.Error ??= "流量服务暂时不可用";
-                return data;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[ERR] 获取流量数据失败: {ex.Message}");
-                return null;
-            }
-        }
 
 
         public void Dispose()

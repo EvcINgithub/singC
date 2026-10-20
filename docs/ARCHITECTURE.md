@@ -27,6 +27,9 @@ flowchart TB
             Traffic["TrafficStatisticsViewModel<br/>TrafficStatistics / OutboundTrafficStatistics<br/>总量与出站采样统计、持久化"]
             Snapshot["ClashApiEndpoint / ClashConnectionSnapshot<br/>运行端点、整帧校验、连接去重"]
             StatisticsStore["StatisticsFileStore<br/>独占写者、原子保存、损坏保护"]
+            Bandwagon["BandwagonTrafficService<br/>本机查询套餐流量、超时与限流"]
+            QuotaCoordinator["BandwagonQueryCoordinator<br/>8 小时流量刷新、仅手动配额查询<br/>独立缓存、冷却与请求串行"]
+            Credentials["BandwagonSettings / WindowsSecretProtection<br/>VEID 与密钥原子保存、当前用户加密"]
         end
         Presentation["ConnectionPresentation / LogAnalysis<br/>纯筛选排序、日志分析"]
         SettingsStore["SettingsStore<br/>串行读改写、失败回滚、损坏提示"]
@@ -48,7 +51,7 @@ flowchart TB
     Files[("本地文件<br/>用户配置与备份 / 临时运行配置<br/>settings.json / 流量统计 JSON<br/>代理恢复记录 / 更新暂存与备份")]
     Internet["目标网站 / DNS / 出口查询服务<br/>及内核配置的远端出站"]
     GitHub["GitHub Releases<br/>版本信息、发布包与校验文件"]
-    Quota["可选流量服务<br/>用户配置的 HTTP 接口"]
+    Quota["搬瓦工 KiwiVM API<br/>getServiceInfo / getRateLimitStatus"]
 
     Shell --> Home
     Shell --> Monitor
@@ -115,8 +118,14 @@ flowchart TB
     Update -->|启动更新助手、退出主程序| Updater
     Updater -->|替换 / 备份 / 回滚| Files
     Updater -->|重启并等待就绪标记| Shell
-    Shell -->|FetchTrafficDataAsync| WS
-    WS -->|可选 HTTP 查询| Quota
+    Shell -->|启动 / 保存 / 每 8 小时流量刷新| QuotaCoordinator
+    Shell -->|仅手动查询 API 点数| QuotaCoordinator
+    QuotaCoordinator --> Bandwagon
+    Shell -->|读取凭据| Credentials
+    Settings -->|保存 / 清空凭据| Credentials
+    Credentials --> SettingsStore
+    Credentials -->|Windows DPAPI| OS
+    Bandwagon -->|HTTPS POST 凭据，不跟随重定向| Quota
 
     classDef focus fill:#fff3cd,stroke:#986b00,stroke-width:2px,color:#202020;
     class Diagnostic focus;
@@ -130,7 +139,7 @@ flowchart TB
 - 两种统计算法保持独立，共用 `StatisticsFileStore`：以文件租约保证单一写者，第二实例只能读取磁盘历史；损坏文件禁止覆盖。设置通过 `SettingsStore` 串行提交，失败时不发布内存变更。
 - 配置保存绑定操作开始时的路径和文本；页面使用忙碌状态及加载代次防止交错覆盖。窗口关闭会等待停止、统计保存与资源释放；失败保留窗口并提示。
 - 更新元数据与校验文件分别限制为 1 MiB、1 KiB；交接等待提取为纯委托接缝。更新事务协议与包格式不变，尚未增加崩溃后自动恢复协议。
-- `ClashWebSocketService` 还包含可选流量服务的静态 HTTP 查询，由 MainWindow 调用；该接口与内核连接流量采样是两条不同数据来源。
+- 套餐查询由 `BandwagonQueryCoordinator` 协调：流量在启动、保存后及每 8 小时刷新；API 点数仅由侧栏按钮手动查询，不随流量刷新访问。按凭据对分开维护内存缓存、独立手动冷却及已知余量耗尽保护；HTTP 限流暂停两个端点。异常保留上次数据及原时间，不把点数换算为精确调用次数或推测官方重置时刻。凭据按当前 Windows 用户加密后成对原子写入设置；空配置不请求。单个请求最多 30 秒、响应最多 1 MiB，保存配置后丢弃旧请求结果。HTTP 仍受本机系统代理、TUN 和路由影响，“本地查询”不表示强制直连。该数据与内核流量采样独立。
 - 内核执行实际代理、TUN 和路由；singC 管理进程与配置。更新助手是独立进程，`UpdateCore` 是更新逻辑代码库，并非额外运行服务。图中的本地文件是存储边界，不是数据库服务。
 - 页面同时使用代码后置、服务和部分 ViewModel；图中分组表达职责，不声称当前系统已经采用严格分层或完整 MVVM。
 

@@ -18,7 +18,15 @@ namespace singC.Pages
         {
             this.InitializeComponent();
             ViewModel = new SettingsViewModel(App.window);
-            TrafficServiceUrlBox.Text = AppSettings.Get(AppSettings.TrafficServiceUrlKey) ?? string.Empty;
+            try
+            {
+                if (AppSettings.Bandwagon.Load() is { } credentials)
+                {
+                    BandwagonVeidBox.Text = credentials.Veid;
+                    BandwagonApiKeyBox.Password = credentials.ApiKey;
+                }
+            }
+            catch (Exception) { BandwagonStatus.Text = "凭据无法读取，请重新填写并保存。"; }
             LoggingToggle.IsOn = AppSettings.Logging.Enabled;
             _updatingLoggingControls = false;
             Loaded += (_, _) => { AppUpdateService.Instance.Changed += RefreshUpdateControls; RefreshUpdateControls(); };
@@ -98,24 +106,22 @@ namespace singC.Pages
         private async void InstallUpdate_Click(object sender, RoutedEventArgs e) => await AppUpdateService.Instance.ConfirmInstallAsync();
         private void CancelUpdate_Click(object sender, RoutedEventArgs e) => AppUpdateService.Instance.CancelDownload();
 
-        private async void SaveServiceUrls_Click(object sender, RoutedEventArgs e)
+        private async void SaveBandwagon_Click(object sender, RoutedEventArgs e)
         {
-            var value = TrafficServiceUrlBox.Text.Trim();
-            if (value.Length > 0 && !AppSettings.IsServiceUrl(value))
-            {
-                ServiceUrlStatus.Text = "请输入有效的 HTTP/HTTPS 地址，且不要在地址中包含用户名和密码。";
-                return;
-            }
+            SaveBandwagonButton.IsEnabled = false;
             try
             {
-                AppSettings.Set(AppSettings.TrafficServiceUrlKey, value);
-                ServiceUrlStatus.Text = "服务地址已保存。";
-                if (App.window is MainWindow mainWindow) await mainWindow.RefreshTrafficAsync();
+                AppSettings.Bandwagon.Save(BandwagonVeidBox.Text, BandwagonApiKeyBox.Password);
+                BandwagonStatus.Text = AppSettings.Bandwagon.Load() == null ? "已停用套餐查询。" : "凭据已加密保存，正在查询。";
+                if (App.window is MainWindow mainWindow) await mainWindow.RefreshTrafficAsync(manual: true);
+                BandwagonStatus.Text = AppSettings.Bandwagon.Load() == null ? "已停用套餐查询。" : "凭据已加密保存，查询结果见侧栏。";
             }
+            catch (ArgumentException ex) { BandwagonStatus.Text = ex.Message; }
             catch (Exception)
             {
-                ServiceUrlStatus.Text = "保存失败，请检查本机设置文件是否可写。";
+                BandwagonStatus.Text = "保存或读取失败，请检查本机设置文件是否可写。";
             }
+            finally { SaveBandwagonButton.IsEnabled = true; }
         }
     }
 }

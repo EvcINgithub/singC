@@ -12,6 +12,7 @@ namespace singC.Helpers
         private static readonly SettingsStore Store = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "singC", "settings.json"));
         public static string StorageError => Store.ReadError;
         public static LoggingSettings Logging { get; } = new(Store);
+        public static BandwagonSettings Bandwagon { get; } = new(Store, WindowsSecretProtection.Protect, WindowsSecretProtection.Unprotect);
 
         public const string NetworkTestUrlKey = "NetworkTestUrl";
         public const string NetworkTestHostKey = "NetworkTestHost";
@@ -26,7 +27,6 @@ namespace singC.Helpers
         public const string ConnectionSortKey = "ConnectionSort";
         public const string LastPageKey = "LastPage";
         public const string StartWithWindowsKey = "StartWithWindows";
-        public const string TrafficServiceUrlKey = "TrafficServiceUrl";
         public const string ProxyModeKey = "ProxyMode";
 
         public static bool IsServiceUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri)

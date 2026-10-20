@@ -47,6 +47,32 @@ When adding a missing TUN inbound, singC uses the current
 and checks the result using the configured sing-box executable. See also the
 [mixed inbound documentation](https://sing-box.sagernet.org/configuration/inbound/mixed/).
 
+## BandwagonHost quota query
+
+In Settings, enter your KiwiVM **VEID** and **API Key**, then select **保存并查询**.
+singC calls `https://api.64clouds.com/v1/getServiceInfo` from this computer using
+an HTTPS POST, without an intermediary service. Requests still follow the local
+Windows proxy, TUN and routing settings. This does not force direct connections.
+
+Both credentials are encrypted with Windows DPAPI for the current Windows user
+and saved together in `%LOCALAPPDATA%/singC/settings.json`. Clear both fields and
+save to disable queries. Old `TrafficServiceUrl` values are ignored. Credentials
+cannot be moved to another Windows account by copying the settings file; re-enter
+them there. API keys are masked in the UI and excluded from request URLs and errors.
+
+Traffic data refreshes at startup, after saving and every **8 hours**. The sidebar's
+**查询 API 余量** button separately requests `getRateLimitStatus`; automatic traffic
+refresh never calls it. It displays the remaining points for the 15-minute and
+24-hour windows as a timestamped snapshot, not an exact number of calls left.
+Manual traffic and quota queries have separate one-minute cooldowns; HTTP rate
+limits hold both endpoints. Known exhausted points pause traffic conservatively
+for 15 minutes or 24 hours; a later manual positive quota check releases that hold.
+Failures preserve the last successful data and its original timestamp. Cache and
+cooldowns are per credential pair and stay in memory until singC exits.
+Used and allowed bytes both use the API's location
+multiplier, and displayed GB uses 1024³ bytes. This provider quota query is
+independent of sing-box traffic sampling and its local history.
+
 ## Optional diagnostic logging
 
 Enable **日志开关** on the Settings page to record proxy restoration diagnostics.

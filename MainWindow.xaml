@@ -86,6 +86,9 @@
                        Text="更新: --"
                        FontSize="10"
                        Foreground="{ThemeResource TextFillColorTertiary}"/>
+                        <TextBlock x:Name="ApiQuotaText" Text="API 余量: --" FontSize="11" TextWrapping="Wrap"/>
+                        <Button x:Name="RefreshTrafficButton" Content="刷新流量" Click="RefreshTraffic_Click" HorizontalAlignment="Left"/>
+                        <Button x:Name="RefreshApiQuotaButton" Content="查询 API 余量" Click="RefreshApiQuota_Click" HorizontalAlignment="Left"/>
                     </StackPanel>
                 </Grid>
             </SplitView.Pane>
