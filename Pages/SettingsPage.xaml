@@ -60,11 +60,15 @@
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                     <StackPanel Spacing="10">
                         <TextBlock Text="搬瓦工流量查询" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                        <TextBlock Text="本机直接查询搬瓦工流量，每 8 小时刷新；API 余量仅通过侧栏按钮手动查询。手动查询至少间隔 1 分钟，余量耗尽或查询失败时暂缓请求。凭据使用当前 Windows 用户加密保存；清空两项并保存可停用。" TextWrapping="Wrap"/>
+                        <TextBlock Text="流量每 8 小时自动刷新；点击下方刷新按钮可同时查询已保存账户的流量与 API 余量。手动查询至少间隔 1 分钟，限流时暂缓请求。凭据使用当前 Windows 用户加密保存；清空两项并保存可停用。" TextWrapping="Wrap"/>
                         <TextBox x:Name="BandwagonVeidBox" Header="VEID" PlaceholderText="VPS 编号"/>
                         <PasswordBox x:Name="BandwagonApiKeyBox" Header="API Key" PlaceholderText="KiwiVM API 密钥"/>
-                        <Button x:Name="SaveBandwagonButton" Content="保存并查询" Click="SaveBandwagon_Click"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="SaveBandwagonButton" Content="保存并查询" Click="SaveBandwagon_Click"/>
+                            <Button x:Name="RefreshBandwagonButton" Content="刷新流量与 API 余量" Click="RefreshBandwagon_Click"/>
+                        </StackPanel>
                         <TextBlock x:Name="BandwagonStatus" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="ApiQuotaOutput" Text="API 余量尚未查询。" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
                     </StackPanel>
                 </Border>
                 <Border Padding="14"
@@ -120,9 +124,11 @@
                                 <FontIcon Glyph="&#xE894;" FontSize="14"/>
                             </Button>
                         </Grid>
-                        <ToggleSwitch Header="开机启动"
-                                      IsOn="{x:Bind ViewModel.StartWithWindows, Mode=TwoWay}"/>
-                        <ToggleSwitch x:Name="LoggingToggle" Header="日志开关" Toggled="LoggingToggle_Toggled"/>
+                        <StackPanel Orientation="Horizontal" Spacing="32">
+                            <ToggleSwitch Header="开机启动"
+                                          IsOn="{x:Bind ViewModel.StartWithWindows, Mode=TwoWay}"/>
+                            <ToggleSwitch x:Name="LoggingToggle" Header="日志开关" Toggled="LoggingToggle_Toggled"/>
+                        </StackPanel>
                         <TextBlock x:Name="LoggingStatus" TextWrapping="Wrap" Visibility="Collapsed"/>
                     </StackPanel>
                 </Border>

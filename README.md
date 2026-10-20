@@ -60,9 +60,11 @@ save to disable queries. Old `TrafficServiceUrl` values are ignored. Credentials
 cannot be moved to another Windows account by copying the settings file; re-enter
 them there. API keys are masked in the UI and excluded from request URLs and errors.
 
-Traffic data refreshes at startup, after saving and every **8 hours**. The sidebar's
-**查询 API 余量** button separately requests `getRateLimitStatus`; automatic traffic
-refresh never calls it. It displays the remaining points for the 15-minute and
+Traffic data refreshes at startup, after saving and every **8 hours**. In Settings,
+the **搬瓦工流量查询** section's **刷新流量与 API 余量** button queries traffic
+and then `getRateLimitStatus` for the saved credentials. The sidebar displays
+traffic without manual query buttons; automatic traffic refresh never requests
+API quota. Results also appear in that settings section and display the remaining points for the 15-minute and
 24-hour windows as a timestamped snapshot, not an exact number of calls left.
 Manual traffic and quota queries have separate one-minute cooldowns; HTTP rate
 limits hold both endpoints. Known exhausted points pause traffic conservatively
